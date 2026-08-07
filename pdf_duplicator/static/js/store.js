@@ -214,12 +214,13 @@ class PDFStudioStore {
     }
 
 
-    deleteSignatureFromLibrary(id) {
+    async deleteSignatureFromLibrary(id) {
         this.state.signature.savedSignatures = this.state.signature.savedSignatures.filter(s => s.id !== id);
         if (this.state.signature.activeDataUrl && !this.state.signature.savedSignatures.some(s => s.dataUrl === this.state.signature.activeDataUrl)) {
             this.state.signature.activeDataUrl = this.state.signature.savedSignatures[0]?.dataUrl || null;
         }
         this.emit("signature:library_updated", this.state.signature.savedSignatures);
+        await this.removeSignatureFromIDB(id);
     }
 
     reorderSignaturesInLibrary(fromIndex, toIndex) {
@@ -307,6 +308,14 @@ class PDFStudioStore {
         const store = tx.objectStore("signatures");
         store.put(sigObj);
     }
+
+    async removeSignatureFromIDB(id) {
+        if (!this.db) return;
+        const tx = this.db.transaction("signatures", "readwrite");
+        const store = tx.objectStore("signatures");
+        store.delete(id);
+    }
+
 
     async loadSignaturesFromIDB() {
         if (!this.db) return;

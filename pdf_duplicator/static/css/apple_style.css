@@ -1,7 +1,7 @@
 /* Apple macOS / iOS Design System Stylesheet */
 
 :root {
-    --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+    --font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
 
     /* Dark Theme Colors (Default) */
     --bg-primary: #0a0a0c;
@@ -59,32 +59,26 @@ body.light-mode {
     padding: 0;
 }
 
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+}
+
 body {
     font-family: var(--font-family);
     background-color: var(--bg-primary);
     color: var(--text-primary);
-    min-height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
 }
 
-/* Translucent Apple Navbar */
+/* Navbar hidden — branding moved to sidebar */
 .apple-navbar {
-    height: 56px;
-    background: var(--bg-card);
-    backdrop-filter: var(--backdrop-blur);
-    -webkit-backdrop-filter: var(--backdrop-blur);
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    display: none !important;
 }
+
 
 .nav-brand {
     display: flex;
@@ -111,7 +105,7 @@ body {
 
 .badge-pill {
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     padding: 3px 8px;
     border-radius: var(--pill-radius);
     font-size: 0.72rem;
@@ -122,7 +116,7 @@ body {
 /* Apple Segmented Navigation */
 .segmented-control {
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     padding: 3px;
     border-radius: 10px;
     display: flex;
@@ -151,6 +145,43 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+/* Sidebar Mode Tabs (Figma-style vertical in sidebar) */
+.sidebar-mode-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 0.5px solid var(--border-color);
+}
+
+.sidebar-mode-tabs .segmented-item {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    text-align: left;
+    justify-content: flex-start;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sidebar-mode-tabs .segmented-item:hover {
+    background: var(--bg-glass-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-mode-tabs .segmented-item.active {
+    background: rgba(0, 122, 255, 0.12);
+    color: var(--apple-blue);
+    font-weight: 600;
+    box-shadow: none;
+}
+
+
 .nav-actions {
     display: flex;
     align-items: center;
@@ -166,7 +197,7 @@ body {
     font-weight: 600;
     border-radius: 20px;
     background: rgba(0, 122, 255, 0.15);
-    border: 1px solid var(--apple-blue);
+    border: 0.5px solid var(--apple-blue);
     color: var(--apple-blue);
     cursor: pointer;
     white-space: nowrap;
@@ -180,7 +211,7 @@ body {
 
 .apple-icon-btn {
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     color: var(--text-primary);
     width: 36px;
     height: 36px;
@@ -198,76 +229,251 @@ body {
 }
 
 
-/* Application Container */
-.app-container {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    gap: 20px;
-    padding: 20px 24px;
-    max-width: 1600px;
-    margin: 0 auto;
-    width: 100%;
+/* Sidebar Brand Block */
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 4px 12px;
+    margin-bottom: 4px;
+    border-bottom: 0.5px solid var(--border-color);
 }
 
-/* Sidebar Panel */
+.sidebar-brand-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.sidebar-app-icon {
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(135deg, var(--apple-blue), var(--apple-indigo));
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+}
+
+.sidebar-app-name {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+    opacity: 0.9;
+}
+
+.sidebar-brand-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sidebar-icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    font-size: 0.75rem;
+}
+
+.sidebar-icon-btn:hover {
+    background: var(--bg-glass-hover);
+    color: var(--text-primary);
+}
+
+/* Sidebar Mode Tabs — Figma style, very lean */
+.sidebar-mode-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 10px 0 8px;
+}
+
+.sidebar-mode-tabs .segmented-item {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    text-align: left;
+    justify-content: flex-start;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s ease;
+    font-family: var(--font-family);
+}
+
+.sidebar-mode-tabs .segmented-item:hover {
+    background: var(--bg-glass);
+    color: var(--text-primary);
+}
+
+.sidebar-mode-tabs .segmented-item.active {
+    background: rgba(0, 122, 255, 0.1);
+    color: var(--apple-blue);
+    font-weight: 600;
+}
+
+/* Application Container — Full Viewport (Figma-like, flex for resizable sidebar) */
+.app-container {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Sidebar Panel — Fixed height, scrollable inside, resizable width */
 .sidebar-panel {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 0;
+    height: 100%;
+    width: 290px;
+    min-width: 160px;
+    max-width: 480px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 0.5px solid var(--border-color);
+    background: var(--bg-card);
+    padding: 0 10px 14px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+    user-select: none;
 }
 
+/* Sidebar Resize Handle */
+.sidebar-resize-handle {
+    width: 4px;
+    flex-shrink: 0;
+    background: transparent;
+    cursor: col-resize;
+    position: relative;
+    transition: background 0.15s;
+    z-index: 10;
+}
+
+.sidebar-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -3px;
+    right: -3px;
+    bottom: 0;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+    background: var(--apple-blue);
+    opacity: 0.6;
+}
+
+/* Round Plus Button for Signature Add */
+.sig-add-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 0.75px solid var(--apple-blue);
+    background: rgba(0, 122, 255, 0.1);
+    color: var(--apple-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, transform 0.15s;
+    padding: 0;
+}
+
+.sig-add-btn:hover {
+    background: var(--apple-blue);
+    color: white;
+    transform: scale(1.1);
+}
+
+.sig-add-btn:active {
+    transform: scale(0.95);
+}
+
+/* Preview Stage fills remaining flex space */
+.preview-stage-container {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+    background: var(--bg-primary);
+}
+
+
 .apple-card {
-    background: var(--bg-card);
-    backdrop-filter: var(--backdrop-blur);
-    -webkit-backdrop-filter: var(--backdrop-blur);
-    border: 1px solid var(--border-color);
-    border-radius: var(--card-radius);
-    padding: 20px;
-    box-shadow: var(--shadow-subtle);
+    background: transparent;
+    border: 0.5px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
 }
 
 .card-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
+    gap: 7px;
+    margin-bottom: 10px;
 }
 
 .step-num {
-    width: 24px;
-    height: 24px;
+    width: 16px;
+    height: 16px;
     background: var(--apple-blue);
     color: white;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8rem;
+    font-size: 0.6rem;
     font-weight: 700;
+    flex-shrink: 0;
 }
 
 .card-header h3 {
-    font-size: 1.05rem;
+    font-size: 0.72rem;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
 }
 
 /* Upload Dropzone */
 .upload-dropzone {
-    border: 2px dashed var(--border-accent);
-    border-radius: 12px;
-    padding: 28px 16px;
+    border: 0.75px dashed var(--border-accent);
+    border-radius: 8px;
+    padding: 14px 10px;
     text-align: center;
     background: var(--bg-glass);
     cursor: pointer;
-    transition: all 0.25s ease;
+    transition: all 0.2s ease;
 }
 
 .upload-dropzone:hover,
 .upload-dropzone.dragover {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.08);
+    background: rgba(0, 122, 255, 0.06);
 }
 
 .file-input-hidden {
@@ -276,34 +482,36 @@ body {
 
 .drop-icon {
     color: var(--apple-blue);
-    margin-bottom: 8px;
+    margin-bottom: 5px;
+    opacity: 0.7;
 }
 
 .drop-title {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.75rem;
 }
 
 .drop-subtitle {
-    font-size: 0.8rem;
+    font-size: 0.68rem;
     color: var(--text-secondary);
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 /* Doc Info Card */
 .doc-info-card {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    padding: 12px 14px;
+    border: 0.5px solid var(--border-color);
+    border-radius: 7px;
+    padding: 7px 10px;
 }
 
 .doc-icon {
-    font-size: 1.6rem;
+    font-size: 1.1rem;
 }
+
 
 .doc-details {
     flex: 1;
@@ -314,14 +522,14 @@ body {
 
 .doc-name {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .doc-meta {
-    font-size: 0.78rem;
+    font-size: 0.68rem;
     color: var(--text-secondary);
 }
 
@@ -333,8 +541,10 @@ body {
 }
 
 .form-label {
-    font-size: 0.82rem;
-    font-weight: 500;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--text-secondary);
 }
 
@@ -342,12 +552,12 @@ body {
 .apple-select {
     width: 100%;
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     color: var(--text-primary);
-    padding: 10px 14px;
-    border-radius: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
     font-family: var(--font-family);
-    font-size: 0.9rem;
+    font-size: 0.78rem;
     outline: none;
     transition: border-color 0.2s;
 }
@@ -355,15 +565,15 @@ body {
 .apple-input:focus,
 .apple-select:focus {
     border-color: var(--apple-blue);
-    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.18);
 }
 
 /* Stepper Input */
 .stepper-input {
     display: flex;
     align-items: center;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border: 0.5px solid var(--border-color);
+    border-radius: 6px;
     background: var(--bg-glass);
     overflow: hidden;
 }
@@ -372,9 +582,9 @@ body {
     border: none;
     background: transparent;
     color: var(--text-primary);
-    width: 38px;
-    height: 38px;
-    font-size: 1.2rem;
+    width: 28px;
+    height: 28px;
+    font-size: 1rem;
     cursor: pointer;
     transition: background 0.15s;
 }
@@ -390,7 +600,7 @@ body {
     color: var(--text-primary);
     text-align: center;
     font-weight: 600;
-    font-size: 1rem;
+    font-size: 0.82rem;
     outline: none;
 }
 
@@ -406,7 +616,7 @@ body {
     align-items: flex-start;
     gap: 10px;
     padding: 10px 12px;
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-glass);
     cursor: pointer;
@@ -440,7 +650,7 @@ body {
 /* Buttons */
 .apple-btn {
     border: none;
-    padding: 10px 18px;
+    padding: 8px 18px;
     border-radius: var(--btn-radius);
     font-family: var(--font-family);
     font-weight: 600;
@@ -468,7 +678,7 @@ body {
 
 .apple-btn.secondary {
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     color: var(--text-primary);
 }
 
@@ -486,6 +696,33 @@ body {
     border-radius: 12px;
 }
 
+/* Save Button — compact, sticky at sidebar bottom */
+.action-card {
+    margin-top: auto;
+    padding-top: 8px;
+}
+
+.save-btn {
+    padding: 7px 14px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    border-radius: 7px;
+    transition: background 0.2s, opacity 0.2s, transform 0.1s;
+}
+
+.save-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.save-btn:not(:disabled):hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+
 .btn-text {
     background: none;
     border: none;
@@ -502,7 +739,7 @@ body {
     margin-top: 12px;
     padding: 10px;
     background: var(--bg-glass);
-    border: 1px dashed var(--border-accent);
+    border: 0.5px dashed var(--border-accent);
     border-radius: 8px;
     display: flex;
     flex-direction: column;
@@ -538,7 +775,7 @@ body {
 }
 
 .accordion-section {
-    border-top: 1px solid var(--border-color);
+    border-top: 0.5px solid var(--border-color);
     padding-top: 12px;
 }
 
@@ -558,43 +795,33 @@ body {
     font-size: 0.68rem;
 }
 
-/* Preview Stage Container */
-.preview-stage-container {
-    background: var(--bg-card);
-    backdrop-filter: var(--backdrop-blur);
-    -webkit-backdrop-filter: var(--backdrop-blur);
-    border: 1px solid var(--border-color);
-    border-radius: var(--card-radius);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: var(--shadow-glass);
-}
+
 
 .stage-toolbar {
-    height: 48px;
-    border-bottom: 1px solid var(--border-color);
+    height: 44px;
+    flex-shrink: 0;
+    border-bottom: 0.5px solid var(--border-color);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
-    background: var(--bg-glass);
+    padding: 0 14px;
+    background: var(--bg-card);
 }
 
 .page-nav-controls {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
 
 .nav-arrow-btn {
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     background: var(--bg-glass);
     color: var(--text-primary);
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
-    font-size: 1.2rem;
+    font-size: 1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -607,7 +834,7 @@ body {
 }
 
 .page-indicator {
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     font-weight: 500;
 }
 
@@ -616,22 +843,36 @@ body {
     position: relative;
     overflow: auto;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    padding: 24px;
-    min-height: 520px;
-    background: rgba(0, 0, 0, 0.2);
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.25);
+    min-height: 0;
 }
 
 .empty-stage-notice {
     text-align: center;
     color: var(--text-secondary);
-    max-width: 300px;
+    max-width: 260px;
+    margin: auto;
+}
+
+.empty-stage-notice h3 {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.empty-stage-notice p {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
 }
 
 .notice-icon {
-    font-size: 3.5rem;
-    margin-bottom: 12px;
+    font-size: 2rem;
+    margin-bottom: 8px;
     opacity: 0.6;
 }
 
@@ -655,7 +896,7 @@ body {
 /* Draggable & Resizable Signature Overlay */
 .signature-overlay {
     position: absolute;
-    border: 2px dashed var(--apple-blue);
+    border: 1px dashed var(--apple-blue);
     background: rgba(0, 122, 255, 0.12);
     cursor: grab;
     box-sizing: border-box;
@@ -670,7 +911,7 @@ body {
 
 
 .signature-overlay.confirmed {
-    border: 2px solid var(--apple-emerald);
+    border: 1px solid var(--apple-emerald);
     background: rgba(52, 199, 89, 0.15);
     box-shadow: 0 0 12px rgba(52, 199, 89, 0.4);
 }
@@ -688,7 +929,7 @@ body {
     display: flex;
     gap: 4px;
     background: var(--bg-card-solid);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     padding: 2px 4px;
     border-radius: 20px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -725,7 +966,7 @@ body {
 .overlay-action-btn.btn-remove {
     background: var(--bg-glass);
     color: var(--apple-red);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
 }
 
 .overlay-action-btn.btn-remove:hover {
@@ -734,7 +975,7 @@ body {
 
 /* Multi Signature Sidebar List */
 .multi-sig-list-card {
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 10px;
     background: var(--bg-glass);
     padding: 10px 12px;
@@ -754,7 +995,7 @@ body {
 .placed-signatures-container {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     max-height: 180px;
     overflow-y: auto;
 }
@@ -765,7 +1006,7 @@ body {
     justify-content: space-between;
     padding: 6px 10px;
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 8px;
     cursor: pointer;
     transition: border-color 0.15s;
@@ -832,7 +1073,7 @@ body {
     width: 12px;
     height: 12px;
     background: white;
-    border: 2px solid var(--apple-blue);
+    border: 1px solid var(--apple-blue);
     border-radius: 50%;
     z-index: 15;
 }
@@ -864,7 +1105,7 @@ body {
 /* Thumbnail Ribbon */
 .thumbnail-ribbon {
     height: 90px;
-    border-top: 1px solid var(--border-color);
+    border-top: 0.5px solid var(--border-color);
     background: var(--bg-glass);
     display: flex;
     gap: 12px;
@@ -876,7 +1117,7 @@ body {
 .thumb-card {
     height: 70px;
     width: 52px;
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     border-radius: 4px;
     overflow: hidden;
     cursor: pointer;
@@ -916,7 +1157,7 @@ body {
 
 .apple-modal-sheet {
     background: var(--bg-card-solid);
-    border: 1px solid var(--border-accent);
+    border: 0.5px solid var(--border-accent);
     border-radius: 20px;
     width: 620px;
     max-width: 92vw;
@@ -944,7 +1185,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 16px 24px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 0.5px solid var(--border-color);
 }
 
 .close-modal-btn {
@@ -959,7 +1200,7 @@ body {
 
 .modal-tabs {
     display: flex;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 0.5px solid var(--border-color);
     background: var(--bg-glass);
 }
 
@@ -972,7 +1213,7 @@ body {
     font-family: var(--font-family);
     font-weight: 500;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
+    border-bottom: 1px solid transparent;
 }
 
 .modal-tab.active {
@@ -1007,7 +1248,7 @@ body {
     left: 40px;
     right: 40px;
     height: 1px;
-    border-bottom: 1px dashed rgba(0, 0, 0, 0.2);
+    border-bottom: 0.5px dashed rgba(0, 0, 0, 0.2);
     pointer-events: none;
 }
 
@@ -1034,7 +1275,7 @@ body {
     width: 24px;
     height: 24px;
     border-radius: 50%;
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     cursor: pointer;
 }
 
@@ -1049,7 +1290,7 @@ body {
 }
 
 .sig-upload-dropzone {
-    border: 2px dashed var(--border-accent);
+    border: 1px dashed var(--border-accent);
     border-radius: 12px;
     padding: 36px 16px;
     text-align: center;
@@ -1079,7 +1320,7 @@ body {
     justify-content: flex-end;
     gap: 12px;
     padding: 16px 24px;
-    border-top: 1px solid var(--border-color);
+    border-top: 0.5px solid var(--border-color);
     background: var(--bg-glass);
 }
 
@@ -1091,7 +1332,7 @@ body {
 .spinner {
     width: 18px;
     height: 18px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-top-color: white;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -1113,13 +1354,13 @@ body {
 
 .status-alert.error {
     background: rgba(255, 59, 48, 0.15);
-    border: 1px solid var(--apple-red);
+    border: 0.5px solid var(--apple-red);
     color: #ff6b63;
 }
 
 .status-alert.success {
     background: rgba(52, 199, 89, 0.15);
-    border: 1px solid var(--apple-emerald);
+    border: 0.5px solid var(--apple-emerald);
     color: #4cd964;
 }
 
@@ -1158,12 +1399,12 @@ body {
     margin-bottom: 12px;
     padding: 6px 12px;
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 8px;
 }
 
 .sig-library-card {
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 10px;
     background: var(--bg-glass);
     padding: 8px;
@@ -1176,7 +1417,7 @@ body {
 }
 
 .sig-library-card.selected-card {
-    border: 2px solid var(--apple-blue);
+    border: 1px solid var(--apple-blue);
     background: rgba(0, 122, 255, 0.15);
     box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
 }
@@ -1243,7 +1484,7 @@ body {
     align-items: center;
     gap: 6px;
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     padding: 2px 8px;
     border-radius: 8px;
 }
@@ -1324,7 +1565,7 @@ body {
 /* Active Signature Palette & Figma Stamp Controls */
 .active-sig-palette {
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
     border-radius: 10px;
     padding: 10px 12px;
 }
@@ -1352,7 +1593,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 2px;
-    border: 1px solid var(--border-color);
+    border: 0.5px solid var(--border-color);
 }
 
 .palette-thumb img {
@@ -1364,7 +1605,7 @@ body {
 /* Stamp Active Banner */
 .stamp-banner {
     background: rgba(0, 122, 255, 0.15);
-    border: 1px solid var(--apple-blue);
+    border: 0.5px solid var(--apple-blue);
     border-radius: 10px;
     padding: 10px 12px;
     display: flex;
@@ -1389,7 +1630,7 @@ body {
     z-index: 9999;
     width: 150px;
     height: 60px;
-    border: 2px dashed var(--apple-blue);
+    border: 1px dashed var(--apple-blue);
     background: rgba(0, 122, 255, 0.18);
     border-radius: 4px;
     transform: translate(-50%, -50%);
@@ -1446,35 +1687,35 @@ body {
 }
 
 .signature-tray-wrapper {
-    margin-top: 14px;
-    margin-bottom: 14px;
+    margin-top: 8px;
+    margin-bottom: 8px;
 }
 
 .tray-subtext {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: var(--text-secondary);
-    margin-bottom: 12px;
-    line-height: 1.4;
+    margin-bottom: 8px;
+    line-height: 1.3;
 }
 
 /* Permanent Signature Drag & Drop Palette Tray */
 .signature-tray-container {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    max-height: 260px;
+    gap: 6px;
+    max-height: 200px;
     overflow-y: auto;
-    padding: 4px 6px 4px 2px;
+    padding-right: 4px;
 }
 
 .tray-sig-card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    padding: 6px 10px;
     background: var(--bg-glass);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border: 0.5px solid var(--border-color);
+    border-radius: 10px;
     cursor: grab;
     user-select: none;
     transition: all 0.2s ease;
@@ -1484,7 +1725,7 @@ body {
     border-color: var(--apple-blue);
     background: rgba(0, 122, 255, 0.08);
     transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(0, 122, 255, 0.18);
+    box-shadow: 0 3px 10px rgba(0, 122, 255, 0.15);
 }
 
 .tray-sig-card:active {
@@ -1493,41 +1734,43 @@ body {
 
 .tray-sig-card.dragging-source {
     opacity: 0.4;
-    border: 2px dashed var(--apple-blue);
+    border: 1px dashed var(--apple-blue);
 }
 
 .tray-sig-card.drag-over-target {
     border-color: var(--apple-blue);
     background: rgba(0, 122, 255, 0.2);
     transform: scale(1.02);
-    box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
+    box-shadow: 0 0 10px rgba(0, 122, 255, 0.4);
 }
 
 .tray-sig-card.active-carrying {
     border-color: var(--apple-blue);
     background: rgba(0, 122, 255, 0.18);
-    box-shadow: 0 0 10px rgba(0, 122, 255, 0.35);
+    box-shadow: 0 0 8px rgba(0, 122, 255, 0.35);
 }
 
 .tray-sig-left {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 8px;
     flex: 1;
 }
 
 .tray-sig-thumb {
-    width: 56px;
-    height: 34px;
+    width: 44px;
+    height: 28px;
     background: white;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 3px;
-    border: 1px solid var(--border-color);
+    padding: 2px;
+    border: 0.5px solid var(--border-color);
     flex-shrink: 0;
 }
+
+
 
 
 .tray-sig-thumb img {
@@ -1565,6 +1808,6 @@ body {
     padding: 18px 10px;
     color: var(--text-secondary);
     font-size: 0.82rem;
-    border: 1px dashed var(--border-color);
+    border: 0.5px dashed var(--border-color);
     border-radius: 10px;
 }

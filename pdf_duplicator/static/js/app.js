@@ -29,6 +29,44 @@ document.addEventListener("DOMContentLoaded", () => {
     const actionSpinner = document.getElementById("actionSpinner");
     const statusAlert = document.getElementById("statusAlert");
 
+    // --- Sidebar Resize Handle ---
+    (function initSidebarResize() {
+        const handle = document.getElementById("sidebarResizeHandle");
+        const sidebar = document.getElementById("sidebarPanel");
+        if (!handle || !sidebar) return;
+
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+        const MIN_WIDTH = 160;
+        const MAX_WIDTH = 480;
+
+        handle.addEventListener("mousedown", (e) => {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = sidebar.offsetWidth;
+            handle.classList.add("dragging");
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            e.preventDefault();
+        });
+
+        document.addEventListener("mousemove", (e) => {
+            if (!isResizing) return;
+            const dx = e.clientX - startX;
+            const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + dx));
+            sidebar.style.width = newWidth + "px";
+        });
+
+        document.addEventListener("mouseup", () => {
+            if (!isResizing) return;
+            isResizing = false;
+            handle.classList.remove("dragging");
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        });
+    })();
+
     // Stage
     const emptyStageNotice = document.getElementById("emptyStageNotice");
     const pdfCanvasContainer = document.getElementById("pdfCanvasContainer");
@@ -142,17 +180,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (mode === "sign") {
             signControlsCard.classList.remove("hidden");
-            actionBtnText.textContent = "Sign & Download PDF";
+            actionBtnText.textContent = "Save";
             renderStageSignatures();
         } else if (mode === "duplicate") {
             duplicateControlsCard.classList.remove("hidden");
-            actionBtnText.textContent = "Duplicate & Download PDF";
+            actionBtnText.textContent = "Save";
             clearStageOverlays();
         } else if (mode === "clone") {
             cloneControlsCard.classList.remove("hidden");
-            actionBtnText.textContent = "Clone & Decrypt PDF";
+            actionBtnText.textContent = "Save";
             clearStageOverlays();
         }
+        updateSaveBtn();
     });
 
     // --- File Upload & Document Subscriptions ---
@@ -222,6 +261,24 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // --- Save Button State Helper ---
+    // Disabled until: doc loaded + has edits (placed sigs for sign mode, or just doc loaded for dup/clone)
+    function updateSaveBtn() {
+        const doc = store.state.document;
+        const mode = store.state.mode;
+        const hasDoc = !!(doc && doc.filename);
+        let hasEdits = false;
+
+        if (mode === "sign") {
+            hasEdits = hasDoc && store.state.signature.placedSignatures && store.state.signature.placedSignatures.length > 0;
+        } else {
+            // duplicate / clone just need a doc
+            hasEdits = hasDoc;
+        }
+
+        processActionBtn.disabled = !hasEdits;
+    }
+
     store.subscribe("document:loaded", (doc) => {
         docName.textContent = doc.filename;
         docMeta.textContent = `${doc.totalPages} page${doc.totalPages > 1 ? 's' : ''}`;
@@ -233,6 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         renderStagePage(1);
         renderThumbnails();
+        updateSaveBtn();
     });
 
     store.subscribe("document:reset", () => {
@@ -245,6 +303,7 @@ document.addEventListener("DOMContentLoaded", () => {
         thumbnailRibbon.classList.add("hidden");
         emptyStageNotice.classList.remove("hidden");
         clearStageOverlays();
+        updateSaveBtn();
     });
 
     // --- Page Navigation & Stage Rendering ---
@@ -347,12 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const savedSignatures = store.state.signature.savedSignatures;
 
         if (!savedSignatures || savedSignatures.length === 0) {
-            signatureTrayContainer.innerHTML = `
-                <div class="empty-tray-notice">
-                    No saved signatures in tray.<br>
-                    Click <strong>+ New Signature</strong> above to draw or upload!
-                </div>
-            `;
+            signatureTrayContainer.innerHTML = `<div class="empty-tray-notice">No signatures yet.</div>`;
             return;
         }
 
@@ -366,16 +420,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
             card.innerHTML = `
                 <div class="tray-sig-left">
-                    <span class="tray-sig-drag-handle" title="Drag directly onto PDF">⋮⋮</span>
+                    <span class="tray-sig-drag-handle" title="Drag onto PDF">⋮⋮</span>
                     <div class="tray-sig-thumb">
-                        <img src="${item.dataUrl}" alt="${item.title}">
-                    </div>
-                    <div class="tray-sig-details">
-                        <span class="tray-sig-title">${item.title || `Sig #${index + 1}`}</span>
-                        <span class="tray-sig-hint">${isCarrying ? '✋ Currently Carrying...' : 'Drag onto PDF or Click to Stamp'}</span>
+                        <img src="${item.dataUrl}" alt="Signature ${index + 1}">
                     </div>
                 </div>
-                <button class="overlay-action-btn btn-remove small" title="Delete Signature">✕</button>
+                <button class="overlay-action-btn btn-remove small" title="Delete">✕</button>
             `;
 
             // HTML5 Drag Event Handlers (Supports PDF drop + Tray Reordering)
@@ -611,6 +661,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     store.subscribe("signatures:doc_updated", () => {
         renderStageSignatures();
+        updateSaveBtn();
     });
 
     // Attach Drag & Resize to an Overlay Box
