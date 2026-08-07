@@ -11,11 +11,15 @@ def parse_page_range(pages_spec, total_pages):
     Parses a string representing pages/ranges and returns a list of 0-based indices.
     Example specs: '1', '1-3', '1,2,5', '1-3,5'
     """
-    if not pages_spec:
+    if pages_spec is None or pages_spec == "":
+        return list(range(total_pages))
+    
+    pages_spec_str = str(pages_spec).strip()
+    if not pages_spec_str:
         return list(range(total_pages))
     
     indices = []
-    parts = pages_spec.split(',')
+    parts = pages_spec_str.split(',')
     for part in parts:
         part = part.strip()
         if not part:
@@ -42,6 +46,7 @@ def parse_page_range(pages_spec, total_pages):
             except ValueError as e:
                 raise ValueError(f"Invalid page number: {part}. Error: {e}")
     return indices
+
 
 def duplicate_pdf(input_path, output_path, password=None):
     """
@@ -114,17 +119,32 @@ def _process_image_input(sig_input):
     from PIL import Image
     if isinstance(sig_input, str):
         if sig_input.startswith("data:image"):
-            header, encoded = sig_input.split(",", 1)
+            if "," in sig_input:
+                header, encoded = sig_input.split(",", 1)
+            else:
+                encoded = sig_input
+            encoded = encoded.strip()
+            missing_padding = len(encoded) % 4
+            if missing_padding:
+                encoded += "=" * (4 - missing_padding)
             img_bytes = base64.b64decode(encoded)
-            return Image.open(io.BytesIO(img_bytes))
+            img = Image.open(io.BytesIO(img_bytes))
+            img.load()
+            return img
         elif os.path.exists(sig_input):
-            return Image.open(sig_input)
+            img = Image.open(sig_input)
+            img.load()
+            return img
         else:
             raise ValueError(f"Signature image file not found: {sig_input}")
     elif isinstance(sig_input, bytes):
-        return Image.open(io.BytesIO(sig_input))
+        img = Image.open(io.BytesIO(sig_input))
+        img.load()
+        return img
     elif hasattr(sig_input, "read"):
-        return Image.open(sig_input)
+        img = Image.open(sig_input)
+        img.load()
+        return img
     elif isinstance(sig_input, Image.Image):
         return sig_input
     else:
@@ -195,7 +215,11 @@ def add_signature_to_pdf(
     for sig_item in signatures:
         s_img = sig_item.get("signature_img") or signature_img
         img_obj = _process_image_input(s_img)
-        spec = sig_item.get("pages_spec", pages_spec)
+        spec = sig_item.get("pages_spec")
+        if spec is None or spec == "":
+            spec = sig_item.get("page")
+        if spec is None or spec == "":
+            spec = pages_spec
         target_idxs = set(parse_page_range(spec, total_pages))
         processed_sigs.append({
             "img_obj": img_obj,

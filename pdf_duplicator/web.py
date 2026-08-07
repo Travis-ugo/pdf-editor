@@ -1,6 +1,7 @@
 import os
 import io
 import uuid
+import json
 import base64
 import tempfile
 from flask import Flask, render_template, request, send_file, jsonify
@@ -22,6 +23,15 @@ app = Flask(
     template_folder=TEMPLATE_DIR,
     static_folder=STATIC_DIR
 )
+
+# Allow up to 100 MB request payloads (for large PDFs and high-res signature payloads)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+app.config['MAX_FORM_MEMORY_SIZE'] = 100 * 1024 * 1024
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"error": "The uploaded file or signature data is too large (max 100 MB)."}), 413
+
 
 # Temporary session storage directory for PDF preview processing
 UPLOAD_TEMP_DIR = tempfile.mkdtemp(prefix="pdf_duplicator_web_")

@@ -68,6 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
     })();
 
     // Stage
+    const stageViewport = document.getElementById("stageViewport") || document.querySelector(".stage-viewport");
     const emptyStageNotice = document.getElementById("emptyStageNotice");
     const pdfCanvasContainer = document.getElementById("pdfCanvasContainer");
     const pdfPageImg = document.getElementById("pdfPageImg");
@@ -248,7 +249,7 @@ document.addEventListener("DOMContentLoaded", () => {
             store.setDocument({
                 fileId: data.file_id,
                 fileObj: file,
-                filename: file.filename,
+                filename: file.name,
                 totalPages: data.total_pages,
                 isEncrypted: data.is_encrypted,
                 currentPage: 1,
@@ -266,11 +267,11 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateSaveBtn() {
         const doc = store.state.document;
         const mode = store.state.mode;
-        const hasDoc = !!(doc && doc.filename);
+        const hasDoc = !!(doc && (doc.filename || doc.fileId || doc.fileObj));
         let hasEdits = false;
 
         if (mode === "sign") {
-            hasEdits = hasDoc && store.state.signature.placedSignatures && store.state.signature.placedSignatures.length > 0;
+            hasEdits = hasDoc && store.state.signature.activeSignaturesOnDoc && store.state.signature.activeSignaturesOnDoc.length > 0;
         } else {
             // duplicate / clone just need a doc
             hasEdits = hasDoc;
@@ -435,13 +436,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 e.dataTransfer.setData("text/tray-index", index.toString());
                 e.dataTransfer.effectAllowed = "copyMove";
                 card.classList.add("dragging-source");
-                if (ghostSigImg) ghostSigImg.src = item.dataUrl;
+
+                // Hide floating stamp ghost cursor so it doesn't double render
+                if (signatureGhostCursor) signatureGhostCursor.classList.add("hidden");
+
+                // Set clean drag image of the signature thumbnail only
+                const thumbImg = card.querySelector(".tray-sig-thumb img");
+                if (thumbImg && e.dataTransfer.setDragImage) {
+                    e.dataTransfer.setDragImage(thumbImg, thumbImg.clientWidth / 2, thumbImg.clientHeight / 2);
+                }
             });
 
             card.addEventListener("dragend", () => {
                 draggedSigUrl = null;
                 card.classList.remove("dragging-source");
                 document.querySelectorAll(".tray-sig-card").forEach(c => c.classList.remove("drag-over-target"));
+                if (isStampModeActive && signatureGhostCursor) {
+                    signatureGhostCursor.classList.remove("hidden");
+                }
             });
 
             card.addEventListener("dragover", (e) => {
@@ -1046,7 +1058,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const formData = new FormData();
         if (doc.fileId) formData.append("file_id", doc.fileId);
-        else formData.append("file", doc.fileObj);
+        if (doc.fileObj) formData.append("file", doc.fileObj);
 
         if (pdfPasswordInput.value) {
             formData.append("password", pdfPasswordInput.value);
@@ -1065,13 +1077,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             endpoint = "/api/sign";
 
+            const pagesModeVal = signPagesMode ? signPagesMode.value : "current";
+            const pageSpecVal = (signPageSpecInput && signPageSpecInput.value) ? signPageSpecInput.value : "";
             const sigsPayload = activeSigs.map(s => ({
-                signature_img: s.dataUrl,
-                pages_spec: signPagesMode.value === "current" ? s.page.toString() : (signPagesMode.value === "custom" ? signPageSpecInput.value : ""),
-                x: s.x,
-                y: s.y,
-                width: s.width,
-                height: s.height,
+                signature_img: s.dataUrl || "",
+                pages_spec: pagesModeVal === "current" ? ((s.page != null) ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
+                x: Number(s.x) || 50,
+                y: Number(s.y) || 50,
+                width: Number(s.width) || 150,
+                height: Number(s.height) || 60,
                 y_from_top: true
             }));
 
@@ -1097,7 +1111,14 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .then(response => {
             if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.error || "Operation failed."); });
+                return response.json()
+                    .then(err => { throw new Error(err.error || "Operation failed."); })
+                    .catch(err => {
+                        if (err.message && !err.message.includes("is not valid JSON") && !err.message.includes("Unexpected token")) {
+                            throw err;
+                        }
+                        throw new Error(`Server Error (${response.status}): ${response.statusText}`);
+                    });
             }
             downloadUrl = response.headers.get("X-Download-Url") || "";
             filePathHeader = response.headers.get("X-File-Path") || "";
@@ -1206,8 +1227,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 stageViewport.classList.remove("is-panning");
             }
         });
-    }
-
+    }    // --- Stage Canvas Zoom & Global Page Zoom Interception ---
     const zoomOutBtn = document.getElementById("zoomOutBtn");
     const zoomInBtn = document.getElementById("zoomInBtn");
     const zoomResetBtn = document.getElementById("zoomResetBtn");
@@ -1216,7 +1236,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let zoomLevel = 1.0;
 
     function setStageZoom(newZoom) {
-        zoomLevel = Math.max(0.5, Math.min(3.0, newZoom));
+        zoomLevel = Math.max(0.3, Math.min(4.0, newZoom));
         if (zoomVal) zoomVal.textContent = `${Math.round(zoomLevel * 100)}%`;
         if (pdfCanvasContainer) {
             pdfCanvasContainer.style.transform = `scale(${zoomLevel})`;
@@ -1229,18 +1249,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (zoomInBtn) zoomInBtn.addEventListener("click", () => setStageZoom(zoomLevel + 0.15));
     if (zoomResetBtn) zoomResetBtn.addEventListener("click", () => setStageZoom(1.0));
 
-    if (stageViewport) {
-        stageViewport.addEventListener("wheel", (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const delta = e.deltaY < 0 ? 0.08 : -0.08;
-                setStageZoom(zoomLevel + delta);
-            } else {
-                stageViewport.scrollLeft += e.deltaX;
-                stageViewport.scrollTop += e.deltaY;
-            }
-        }, { passive: false });
-    }
+    // Global interception: Prevent browser page zooming, route pinch/ctrl-wheel to stage canvas zoom (Figma style)
+    window.addEventListener("wheel", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.08 : -0.08;
+            setStageZoom(zoomLevel + delta);
+        }
+    }, { passive: false });
+
+    // Safari/Mac gesture zoom prevention for whole page
+    window.addEventListener("gesturestart", (e) => e.preventDefault());
+    window.addEventListener("gesturechange", (e) => e.preventDefault());
+    window.addEventListener("gestureend", (e) => e.preventDefault());
 
 
 
@@ -1270,7 +1291,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const formData = new FormData();
             if (doc.fileId) formData.append("file_id", doc.fileId);
-            else formData.append("file", doc.fileObj);
+            if (doc.fileObj) formData.append("file", doc.fileObj);
 
             if (pdfPasswordInput.value) {
                 formData.append("password", pdfPasswordInput.value);
@@ -1278,9 +1299,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const activeSigs = store.state.signature.activeSignaturesOnDoc;
             if (activeSigs && activeSigs.length > 0) {
+                const pagesModeVal = signPagesMode ? signPagesMode.value : "current";
+                const pageSpecVal = signPageSpecInput ? signPageSpecInput.value : "";
                 const sigsPayload = activeSigs.map(s => ({
                     signature_img: s.dataUrl,
-                    pages_spec: signPagesMode.value === "current" ? s.page.toString() : (signPagesMode.value === "custom" ? signPageSpecInput.value : ""),
+                    pages_spec: pagesModeVal === "current" ? (s.page != null ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
                     x: s.x,
                     y: s.y,
                     width: s.width,
