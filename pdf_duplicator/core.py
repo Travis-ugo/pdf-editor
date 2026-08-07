@@ -1,5 +1,10 @@
 import os
-from pypdf import PdfReader, PdfWriter
+
+try:
+    from pypdf import PdfReader, PdfWriter
+except ImportError:
+    from PyPDF2 import PdfReader, PdfWriter
+
 
 def parse_page_range(pages_spec, total_pages):
     """
@@ -102,3 +107,132 @@ def duplicate_pages(input_path, output_path, pages_spec=None, count=1, password=
                 
     with open(output_path, "wb") as f:
         writer.write(f)
+
+def _process_image_input(sig_input):
+    import io
+    import base64
+    from PIL import Image
+    if isinstance(sig_input, str):
+        if sig_input.startswith("data:image"):
+            header, encoded = sig_input.split(",", 1)
+            img_bytes = base64.b64decode(encoded)
+            return Image.open(io.BytesIO(img_bytes))
+        elif os.path.exists(sig_input):
+            return Image.open(sig_input)
+        else:
+            raise ValueError(f"Signature image file not found: {sig_input}")
+    elif isinstance(sig_input, bytes):
+        return Image.open(io.BytesIO(sig_input))
+    elif hasattr(sig_input, "read"):
+        return Image.open(sig_input)
+    elif isinstance(sig_input, Image.Image):
+        return sig_input
+    else:
+        raise ValueError("Invalid signature image format.")
+
+def add_signature_to_pdf(
+    input_path,
+    output_path,
+    signature_img=None,
+    pages_spec=None,
+    x=50,
+    y=50,
+    width=150,
+    height=50,
+    password=None,
+    y_from_top=False,
+    signatures=None
+):
+    """
+    Adds single or multiple signature image overlays to specified pages of a PDF document.
+    
+    :param input_path: Path to input PDF file
+    :param output_path: Path to output PDF file
+    :param signature_img: Single signature image path / base64 / bytes
+    :param pages_spec: Target pages spec
+    :param x: X position in PDF points
+    :param y: Y position in PDF points
+    :param width: Signature width in PDF points
+    :param height: Signature height in PDF points
+    :param password: Password if PDF is encrypted
+    :param y_from_top: Measure Y coordinate from top of page if True
+    :param signatures: Optional list of signature dict items for multi-signature placement:
+                       [{ 'signature_img': ..., 'pages_spec': ..., 'x': ..., 'y': ..., 'width': ..., 'height': ..., 'y_from_top': ... }]
+    """
+    import io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    reader = PdfReader(input_path)
+
+    if reader.is_encrypted:
+        if not password:
+            raise ValueError("The PDF is encrypted. Please provide a password.")
+        decrypted = reader.decrypt(password)
+        if decrypted == 0:
+            raise ValueError("Incorrect password for the PDF file.")
+
+    total_pages = len(reader.pages)
+
+    if not signatures:
+        if not signature_img:
+            raise ValueError("No signature image or signatures list provided.")
+        signatures = [{
+            "signature_img": signature_img,
+            "pages_spec": pages_spec,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "y_from_top": y_from_top
+        }]
+
+    # Process all signature items
+    processed_sigs = []
+    for sig_item in signatures:
+        s_img = sig_item.get("signature_img") or signature_img
+        img_obj = _process_image_input(s_img)
+        spec = sig_item.get("pages_spec", pages_spec)
+        target_idxs = set(parse_page_range(spec, total_pages))
+        processed_sigs.append({
+            "img_obj": img_obj,
+            "target_indices": target_idxs,
+            "x": float(sig_item.get("x", 50)),
+            "y": float(sig_item.get("y", 50)),
+            "width": float(sig_item.get("width", 150)),
+            "height": float(sig_item.get("height", 50)),
+            "y_from_top": sig_item.get("y_from_top", True)
+        })
+
+    writer = PdfWriter()
+
+    for idx, page in enumerate(reader.pages):
+        page_width = float(page.mediabox.width)
+        page_height = float(page.mediabox.height)
+
+        matching_sigs = [s for s in processed_sigs if idx in s["target_indices"]]
+
+        if matching_sigs:
+            packet = io.BytesIO()
+            can = canvas.Canvas(packet, pagesize=(page_width, page_height))
+            for sig in matching_sigs:
+                pdf_y = page_height - sig["y"] - sig["height"] if sig["y_from_top"] else sig["y"]
+                can.drawImage(ImageReader(sig["img_obj"]), sig["x"], pdf_y, width=sig["width"], height=sig["height"], mask='auto')
+            can.save()
+            packet.seek(0)
+
+            overlay_pdf = PdfReader(packet)
+            overlay_page = overlay_pdf.pages[0]
+            new_page = writer.add_page(page)
+            new_page.merge_page(overlay_page)
+        else:
+            writer.add_page(page)
+
+    with open(output_path, "wb") as f:
+        writer.write(f)
+
+
+

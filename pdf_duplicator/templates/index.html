@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PDF Studio Pro - Duplicator & Signature</title>
+    
+    <!-- PWA Web App Manifest & Apple iOS Meta Tags -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <meta name="theme-color" content="#0a0a0c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PDF Studio">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/apple_style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-mode">
+
+    <!-- Translucent Apple Header Navbar -->
+    <header class="apple-navbar">
+        <div class="nav-brand">
+            <div class="app-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M16 13H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M16 17H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <span class="brand-title">PDF Studio Pro</span>
+            <span class="badge-pill">PWA • HIG</span>
+        </div>
+
+        <!-- Apple Segmented Navigation Bar -->
+        <div class="segmented-control">
+            <button class="segmented-item active" data-mode="sign">
+                <span class="icon">✍️</span> Sign PDF
+            </button>
+            <button class="segmented-item" data-mode="duplicate">
+                <span class="icon">📑</span> Duplicate Pages
+            </button>
+            <button class="segmented-item" data-mode="clone">
+                <span class="icon">🔓</span> Clone & Decrypt
+            </button>
+        </div>
+
+        <div class="nav-actions">
+            <button id="pwaInstallBtn" class="apple-btn secondary small hidden" title="Install PWA App">
+                📲 Install App
+            </button>
+            <button id="themeToggleBtn" class="apple-icon-btn" title="Toggle Theme">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Application Split Layout -->
+    <main class="app-container">
+        
+        <!-- Sidebar Controls Panel -->
+        <aside class="sidebar-panel">
+            
+            <!-- Step 1: Upload Document Card -->
+            <div class="apple-card">
+                <div class="card-header">
+                    <span class="step-num">1</span>
+                    <h3>Document Upload</h3>
+                </div>
+                
+                <div id="dropzone" class="upload-dropzone">
+                    <input type="file" id="pdfFileInput" accept="application/pdf" class="file-input-hidden">
+                    <div class="dropzone-content">
+                        <div class="drop-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 15V3m0 0l-4 4m4-4l4 4M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17"/>
+                            </svg>
+                        </div>
+                        <p class="drop-title">Drop your PDF here</p>
+                        <p class="drop-subtitle">or click to browse files</p>
+                    </div>
+                </div>
+
+                <!-- Document Information Badge -->
+                <div id="docInfoCard" class="doc-info-card hidden">
+                    <div class="doc-icon">📄</div>
+                    <div class="doc-details">
+                        <span id="docName" class="doc-name">document.pdf</span>
+                        <span id="docMeta" class="doc-meta">0 pages</span>
+                    </div>
+                    <button id="removeDocBtn" class="btn-text danger">Change</button>
+                </div>
+
+                <!-- Encryption Password Prompt -->
+                <div id="passwordSection" class="form-group hidden margin-top">
+                    <label for="pdfPasswordInput" class="form-label">🔐 PDF Password required</label>
+                    <input type="password" id="pdfPasswordInput" class="apple-input" placeholder="Enter password...">
+                </div>
+            </div>
+
+            <!-- Step 2: Mode Specific Options -->
+
+            <!-- SIGN MODE CONTROLS -->
+            <div id="signControlsCard" class="apple-card mode-card">
+                <div class="card-header flex-between">
+                    <div class="header-title-group">
+                        <span class="step-num">2</span>
+                        <h3>Signature Library Tray</h3>
+                    </div>
+                    <button id="openSigStudioBtn" class="apple-btn primary small">
+                        + Signature
+                    </button>
+                </div>
+
+                <!-- Permanent Multi-Signature Drag & Pick Tray -->
+                <div class="signature-tray-wrapper margin-top">
+                    <p class="tray-subtext">💡 Drag any signature directly onto the PDF page, or click to carry & stamp.</p>
+                    <div id="signatureTrayContainer" class="signature-tray-container">
+                        <!-- Draggable & Selectable Signature Cards rendered dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- Stamp Active Banner -->
+                <div id="stampBanner" class="stamp-banner margin-top hidden">
+                    <div class="stamp-banner-content">
+                        <span>✋ <strong>Stamp Mode Active</strong>: Click anywhere on PDF page to place signature. Press <strong>Esc</strong> to stop.</span>
+                    </div>
+                    <button id="stopStampBtn" class="apple-btn secondary small danger">Stop Stamping</button>
+                </div>
+
+                <!-- Placed Signatures List on Document -->
+                <div id="multiSigListCard" class="multi-sig-list-card margin-top hidden">
+                    <div class="multi-sig-header">
+                        <span>Placed Signatures on Document (<span id="sigCountNum">0</span>)</span>
+                    </div>
+                    <div id="placedSignaturesContainer" class="placed-signatures-container">
+                        <!-- Items inserted dynamically -->
+                    </div>
+                </div>
+
+
+
+
+                <!-- Placement Settings -->
+                <div class="form-group margin-top">
+                    <label class="form-label">Apply to Pages</label>
+                    <select id="signPagesMode" class="apple-select">
+                        <option value="current">Current Page (<span class="current-page-num">1</span>)</option>
+                        <option value="all">All Pages</option>
+                        <option value="custom">Custom Page Range</option>
+                    </select>
+                </div>
+
+                <div id="customPageRangeGroup" class="form-group hidden">
+                    <label class="form-label">Page Spec (e.g. 1-3, 5)</label>
+                    <input type="text" id="signPageSpecInput" class="apple-input" placeholder="e.g. 1-3, 5">
+                </div>
+
+                <!-- Fine Tuning Coordinates & Undo/Redo Controls -->
+                <div class="accordion-section margin-top">
+                    <div class="accordion-header">
+                        <span>Position & Dimension (Points)</span>
+                        <div class="undo-redo-group">
+                            <button id="undoBtn" class="apple-icon-btn small" title="Undo Placement (⌘Z)" disabled>↩️</button>
+                            <button id="redoBtn" class="apple-icon-btn small" title="Redo Placement (⌘⇧Z)" disabled>↪️</button>
+                        </div>
+                    </div>
+                    <div class="grid-2col">
+                        <div class="form-group">
+                            <label class="form-label">X Pos</label>
+                            <input type="number" id="sigXInput" class="apple-input" value="50" step="5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Y Pos (From Top)</label>
+                            <input type="number" id="sigYInput" class="apple-input" value="50" step="5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Width</label>
+                            <input type="number" id="sigWInput" class="apple-input" value="150" step="5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Height</label>
+                            <input type="number" id="sigHInput" class="apple-input" value="60" step="5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DUPLICATE MODE CONTROLS -->
+            <div id="duplicateControlsCard" class="apple-card mode-card hidden">
+                <div class="card-header">
+                    <span class="step-num">2</span>
+                    <h3>Duplication Settings</h3>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Pages to Duplicate</label>
+                    <input type="text" id="dupPagesInput" class="apple-input" placeholder="Leave empty for all pages (e.g. 1-3,5)">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Duplication Count</label>
+                    <div class="stepper-input">
+                        <button id="stepperMinusBtn" class="stepper-btn">-</button>
+                        <input type="number" id="dupCountInput" class="stepper-value" value="2" min="1" max="100">
+                        <button id="stepperPlusBtn" class="stepper-btn">+</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Sequence Layout</label>
+                    <div class="radio-group-apple">
+                        <label class="radio-card">
+                            <input type="radio" name="dupSequence" value="false" checked>
+                            <div class="radio-content">
+                                <span class="radio-title">Sequential Individual</span>
+                                <span class="radio-desc">Page 1, 1, Page 2, 2</span>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="dupSequence" value="true">
+                            <div class="radio-content">
+                                <span class="radio-title">Repeat Entire Sequence</span>
+                                <span class="radio-desc">Page 1, 2, Page 1, 2</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CLONE MODE CONTROLS -->
+            <div id="cloneControlsCard" class="apple-card mode-card hidden">
+                <div class="card-header">
+                    <span class="step-num">2</span>
+                    <h3>Clone & Decrypt</h3>
+                </div>
+                <p class="section-desc">
+                    Creates an exact duplicate copy of your PDF file. If the file is password-protected, entering the password will decrypt it, producing an unlocked copy.
+                </p>
+            </div>
+
+            <!-- Step 3: Action & Export Button -->
+            <div class="apple-card action-card">
+                <button id="processActionBtn" class="apple-btn primary width-full large-btn">
+                    <span id="actionBtnText">Sign & Download PDF</span>
+                    <div id="actionSpinner" class="spinner hidden"></div>
+                </button>
+                <div id="statusAlert" class="status-alert hidden"></div>
+            </div>
+
+        </aside>
+
+        <!-- PDF Preview & Interactive Visual Stage -->
+        <section class="preview-stage-container">
+            <div class="stage-toolbar">
+                <div class="page-nav-controls">
+                    <button id="prevPageBtn" class="nav-arrow-btn" disabled>‹</button>
+                    <span class="page-indicator">Page <span id="currentPageNum">1</span> of <span id="totalPagesNum">1</span></span>
+                    <button id="nextPageBtn" class="nav-arrow-btn" disabled>›</button>
+                </div>
+
+                <!-- Isolated Stage Zoom Controls & Figma Pan Tool -->
+                <div class="zoom-controls-group">
+                    <button id="togglePanToolBtn" class="apple-icon-btn small" title="Pan Tool (Hold Spacebar to Pan)">✋</button>
+                    <button id="zoomOutBtn" class="apple-icon-btn small" title="Zoom Out Stage (-)">-</button>
+                    <span id="zoomVal" class="zoom-val">100%</span>
+                    <button id="zoomInBtn" class="apple-icon-btn small" title="Zoom In Stage (+)">+</button>
+                    <button id="zoomResetBtn" class="apple-btn secondary small" title="Reset Zoom">Fit</button>
+                </div>
+
+
+                <div class="stage-info">
+                    <button id="openFullPreviewBtn" class="apple-btn secondary small">
+                        👁️ Full Preview
+                    </button>
+                </div>
+            </div>
+
+
+            <div class="stage-viewport">
+                <div id="emptyStageNotice" class="empty-stage-notice">
+                    <div class="notice-icon">📑</div>
+                    <h3>No PDF Loaded</h3>
+                    <p>Upload a PDF document to view and place signatures interactively.</p>
+                </div>
+
+                <div id="pdfCanvasContainer" class="pdf-canvas-container hidden">
+                    <img id="pdfPageImg" src="" alt="PDF Page Preview">
+                </div>
+            </div>
+
+            <!-- Floating Ghost Cursor for Figma-style Signature Stamp Carrying -->
+            <div id="signatureGhostCursor" class="signature-ghost-cursor hidden">
+                <div class="ghost-inner">
+                    <img id="ghostSigImg" src="" alt="Stamp Ghost">
+                </div>
+            </div>
+
+
+            <!-- Page Thumbnail Ribbon -->
+            <div id="thumbnailRibbon" class="thumbnail-ribbon hidden">
+                <!-- Thumbnail items inserted dynamically via JS -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Signature Studio Modal (Apple HIG Sheet Modal) -->
+    <div id="sigStudioModal" class="apple-modal-backdrop hidden">
+        <div class="apple-modal-sheet">
+            <div class="modal-header">
+                <h2>Signature Studio</h2>
+                <button id="closeSigStudioBtn" class="close-modal-btn">✕</button>
+            </div>
+
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="draw">✍️ Draw Signature</button>
+                <button class="modal-tab" data-tab="upload">📁 Upload Image</button>
+                <button class="modal-tab" data-tab="library">📚 Saved Library</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Tab 1: Draw Signature -->
+                <div id="tabDraw" class="tab-pane active">
+                    <div class="canvas-wrapper">
+                        <canvas id="sigCanvas" width="560" height="220"></canvas>
+                        <div class="canvas-guide-line"></div>
+                    </div>
+                    <div class="canvas-tools">
+                        <div class="color-picker-group">
+                            <span class="tool-label">Ink Color:</span>
+                            <button class="color-btn active" data-color="#000000" style="background:#000000;"></button>
+                            <button class="color-btn" data-color="#003366" style="background:#003366;"></button>
+                            <button class="color-btn" data-color="#0066cc" style="background:#0066cc;"></button>
+                            <button class="color-btn" data-color="#cc0000" style="background:#cc0000;"></button>
+                        </div>
+                        <div class="stroke-width-group">
+                            <span class="tool-label">Width:</span>
+                            <input type="range" id="strokeWidthInput" min="1" max="6" value="3" class="apple-slider">
+                        </div>
+                        <button id="clearCanvasBtn" class="apple-btn secondary small">Clear</button>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Upload Signature -->
+                <div id="tabUpload" class="tab-pane hidden">
+                    <div class="sig-upload-dropzone">
+                        <input type="file" id="sigImageFileInput" accept="image/png, image/jpeg, image/svg+xml" class="file-input-hidden">
+                        <div class="drop-icon">🖼️</div>
+                        <p class="drop-title">Select signature PNG or JPEG</p>
+                        <p class="drop-subtitle">Transparent background PNGs recommended</p>
+                    </div>
+                    <div id="uploadedSigPreview" class="uploaded-sig-preview hidden">
+                        <img id="uploadedSigImg" src="" alt="Uploaded Signature">
+                    </div>
+                </div>
+
+                <!-- Tab 3: Saved Signatures Library (IndexedDB Persisted) -->
+                <div id="tabLibrary" class="tab-pane hidden">
+                    <div class="library-toolbar-multi">
+                        <span class="hint-text">Select one or multiple signatures to insert at once:</span>
+                        <button id="addSelectedLibSigsBtn" class="apple-btn primary small" disabled>
+                            Add Selected Signatures (0)
+                        </button>
+                    </div>
+                    <div id="sigLibraryGrid" class="sig-library-grid">
+                        <p class="empty-library-text">No saved signatures yet. Draw or upload a signature to save it to your library!</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelSigModalBtn" class="apple-btn secondary">Cancel</button>
+                <button id="addAndKeepSigBtn" class="apple-btn secondary">Add & Draw Another</button>
+                <button id="saveSigModalBtn" class="apple-btn primary">Use This Signature</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full Document Preview Screen Modal (Apple HIG Sheet Modal) -->
+    <div id="pdfPreviewModal" class="apple-modal-backdrop hidden">
+
+        <div class="apple-modal-sheet large-preview-sheet">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h2>👁️ Document Preview</h2>
+                    <span id="previewPageCount" class="badge-pill">0 Pages</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button id="previewSaveBtn" class="apple-btn primary small">
+                        💾 Save & Download PDF
+                    </button>
+                    <button id="closePreviewModalBtn" class="close-modal-btn">✕</button>
+                </div>
+            </div>
+
+            <div class="modal-body preview-modal-body">
+                <div id="previewSpinner" class="spinner-center">
+                    <div class="spinner"></div>
+                    <p>Generating Document Preview...</p>
+                </div>
+                <div id="previewPagesContainer" class="preview-pages-container hidden">
+                    <!-- Preview pages rendered dynamically -->
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="closePreviewFooterBtn" class="apple-btn secondary">Close Preview</button>
+                <button id="previewSaveFooterBtn" class="apple-btn primary large-btn">
+                    💾 Save & Download PDF
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reactive Store and Application Scripts -->
+    <script src="{{ url_for('static', filename='js/store.js') }}"></script>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    
+    <!-- PWA Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(reg => console.log('[PWA] ServiceWorker registered with scope:', reg.scope))
+                    .catch(err => console.log('[PWA] ServiceWorker registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
