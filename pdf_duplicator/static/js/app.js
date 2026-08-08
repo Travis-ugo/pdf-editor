@@ -9,9 +9,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const segmentedButtons = document.querySelectorAll(".segmented-item");
     
     // Cards
+    const documentUploadCard = document.getElementById("documentUploadCard");
     const signControlsCard = document.getElementById("signControlsCard");
+    const mergeControlsCard = document.getElementById("mergeControlsCard");
     const duplicateControlsCard = document.getElementById("duplicateControlsCard");
     const cloneControlsCard = document.getElementById("cloneControlsCard");
+    
+    // Merge Controls
+    const mergeDropzone = document.getElementById("mergeDropzone");
+    const mergeFileInput = document.getElementById("mergeFileInput");
+    const mergeFileList = document.getElementById("mergeFileList");
+    const customOutputFilenameInput = document.getElementById("customOutputFilenameInput");
     
     // Upload & Doc
     const dropzone = document.getElementById("dropzone");
@@ -176,13 +184,21 @@ document.addEventListener("DOMContentLoaded", () => {
     store.subscribe("mode:changed", (mode) => {
         segmentedButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
         signControlsCard.classList.add("hidden");
+        if (mergeControlsCard) mergeControlsCard.classList.add("hidden");
         duplicateControlsCard.classList.add("hidden");
         cloneControlsCard.classList.add("hidden");
+
+        if (documentUploadCard) documentUploadCard.classList.remove("hidden");
 
         if (mode === "sign") {
             signControlsCard.classList.remove("hidden");
             actionBtnText.textContent = "Save";
             renderStageSignatures();
+        } else if (mode === "merge") {
+            if (mergeControlsCard) mergeControlsCard.classList.remove("hidden");
+            actionBtnText.textContent = "Save";
+            clearStageOverlays();
+            updateMergedStagePreview(store.state.merge.files);
         } else if (mode === "duplicate") {
             duplicateControlsCard.classList.remove("hidden");
             actionBtnText.textContent = "Save";
@@ -256,6 +272,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 pagePreviews: data.page_previews,
                 pageDimensions: data.page_dimensions
             });
+
+            if (store.state.currentMode === "merge") {
+                const existing = store.state.merge.files.find(f => f.fileId === data.file_id || f.filename === file.name);
+                if (!existing) {
+                    store.addMergeFile({
+                        fileId: data.file_id || null,
+                        fileObj: file,
+                        filename: file.name,
+                        totalPages: data.total_pages || 0,
+                        isEncrypted: !!data.is_encrypted,
+                        password: pdfPasswordInput.value || "",
+                        pagesSpec: "",
+                        pagePreviews: data.page_previews || []
+                    });
+                }
+            }
         })
         .catch(err => {
             showStatus("Failed to inspect PDF: " + err.message, "error");
@@ -263,15 +295,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- Save Button State Helper ---
-    // Disabled until: doc loaded + has edits (placed sigs for sign mode, or just doc loaded for dup/clone)
     function updateSaveBtn() {
         const doc = store.state.document;
-        const mode = store.state.mode;
+        const mode = store.state.currentMode;
         const hasDoc = !!(doc && (doc.filename || doc.fileId || doc.fileObj));
         let hasEdits = false;
 
         if (mode === "sign") {
             hasEdits = hasDoc && store.state.signature.activeSignaturesOnDoc && store.state.signature.activeSignaturesOnDoc.length > 0;
+        } else if (mode === "merge") {
+            hasEdits = store.state.merge.files && store.state.merge.files.length > 0;
         } else {
             // duplicate / clone just need a doc
             hasEdits = hasDoc;
@@ -279,6 +312,196 @@ document.addEventListener("DOMContentLoaded", () => {
 
         processActionBtn.disabled = !hasEdits;
     }
+
+    // --- Custom Output Filename Input Listener ---
+    if (customOutputFilenameInput) {
+        customOutputFilenameInput.addEventListener("input", (e) => {
+            store.setCustomOutputFilename(e.target.value);
+        });
+    }
+
+    // --- Merge Mode Dropzone & Queue Event Listeners ---
+    if (mergeDropzone && mergeFileInput) {
+        mergeDropzone.addEventListener("click", () => mergeFileInput.click());
+        mergeDropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            mergeDropzone.classList.add("dragover");
+        });
+        mergeDropzone.addEventListener("dragleave", () => mergeDropzone.classList.remove("dragover"));
+        mergeDropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            mergeDropzone.classList.remove("dragover");
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleMergeFilesUpload(Array.from(e.dataTransfer.files));
+            }
+        });
+        mergeFileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleMergeFilesUpload(Array.from(e.target.files));
+                mergeFileInput.value = "";
+            }
+        });
+    }
+
+    function handleMergeFilesUpload(filesList) {
+        filesList.forEach(file => {
+            if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+                return;
+            }
+            const formData = new FormData();
+            formData.append("file", file);
+            fetch("/api/inspect-pdf", {
+                method: "POST",
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error && !data.is_encrypted) {
+                    showStatus(data.error, "error");
+                    return;
+                }
+                store.addMergeFile({
+                    fileId: data.file_id || null,
+                    fileObj: file,
+                    filename: file.name,
+                    totalPages: data.total_pages || 0,
+                    isEncrypted: !!data.is_encrypted,
+                    password: "",
+                    pagesSpec: "",
+                    pagePreviews: data.page_previews || []
+                });
+            })
+            .catch(err => {
+                showStatus(err.message, "error");
+            });
+        });
+    }
+
+    store.subscribe("merge:files_updated", (files) => {
+        renderMergeFileList(files);
+        updateSaveBtn();
+        updateMergedStagePreview(files);
+    });
+
+    let draggedMergeItemIdx = null;
+
+    function renderMergeFileList(files) {
+        if (!mergeFileList) return;
+        mergeFileList.innerHTML = "";
+        if (!files || files.length === 0) {
+            mergeFileList.innerHTML = `<p class="empty-list-notice" style="font-size: 0.72rem; color: var(--text-secondary); text-align: center; padding: 10px 0;">No PDFs added yet. Drop or select PDF files to merge.</p>`;
+            return;
+        }
+
+        files.forEach((fileItem, idx) => {
+            const itemEl = document.createElement("div");
+            itemEl.className = "merge-file-item";
+            itemEl.draggable = true;
+            itemEl.dataset.id = fileItem.id;
+            itemEl.dataset.index = idx;
+
+            const thumbSrc = (fileItem.pagePreviews && fileItem.pagePreviews[0]) ? fileItem.pagePreviews[0] : "";
+            const thumbHtml = thumbSrc ? `<img src="${thumbSrc}" class="merge-file-thumb" alt="thumb">` : `<div class="merge-file-icon">📄</div>`;
+
+            itemEl.innerHTML = `
+                <div class="merge-item-drag-handle" title="Drag to reorder (Pos #${idx + 1})">
+                    <span class="merge-pos-badge">#${idx + 1}</span>
+                    <span class="drag-dots">⋮⋮</span>
+                </div>
+                ${thumbHtml}
+                <div class="merge-item-info">
+                    <div class="merge-item-header">
+                        <span class="merge-item-title" title="${fileItem.filename}">${fileItem.filename}</span>
+                        <span class="merge-item-meta">${fileItem.totalPages} page${fileItem.totalPages !== 1 ? 's' : ''} ${fileItem.isEncrypted ? '🔐' : ''}</span>
+                    </div>
+                    ${fileItem.isEncrypted ? `
+                        <input type="password" class="apple-input small margin-top-xs merge-pwd-input" placeholder="Password required..." value="${fileItem.password || ''}">
+                    ` : ''}
+                    <div class="margin-top-xs">
+                        <input type="text" class="apple-input small merge-spec-input" placeholder="Page range e.g. 1-3 (optional)" value="${fileItem.pagesSpec || ''}">
+                    </div>
+                </div>
+                <div class="merge-item-actions">
+                    <button class="merge-btn-order move-up-btn" title="Move Up" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                    <button class="merge-btn-order move-down-btn" title="Move Down" ${idx === files.length - 1 ? 'disabled' : ''}>▼</button>
+                    <button class="merge-btn-remove remove-merge-btn" title="Remove PDF">✕</button>
+                </div>
+            `;
+
+            // HTML5 Drag and Drop Event Listeners
+            itemEl.addEventListener("dragstart", (e) => {
+                draggedMergeItemIdx = idx;
+                itemEl.classList.add("dragging");
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", idx);
+            });
+
+            itemEl.addEventListener("dragend", () => {
+                itemEl.classList.remove("dragging");
+                document.querySelectorAll(".merge-file-item").forEach(el => el.classList.remove("drag-over"));
+                draggedMergeItemIdx = null;
+            });
+
+            itemEl.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                itemEl.classList.add("drag-over");
+            });
+
+            itemEl.addEventListener("dragleave", () => {
+                itemEl.classList.remove("drag-over");
+            });
+
+            itemEl.addEventListener("drop", (e) => {
+                e.preventDefault();
+                itemEl.classList.remove("drag-over");
+                if (draggedMergeItemIdx !== null && draggedMergeItemIdx !== idx) {
+                    store.moveMergeFile(draggedMergeItemIdx, idx);
+                }
+            });
+
+            const moveUpBtn = itemEl.querySelector(".move-up-btn");
+            const moveDownBtn = itemEl.querySelector(".move-down-btn");
+            const removeBtn = itemEl.querySelector(".remove-merge-btn");
+            const pwdInput = itemEl.querySelector(".merge-pwd-input");
+            const specInput = itemEl.querySelector(".merge-spec-input");
+
+            if (moveUpBtn) moveUpBtn.addEventListener("click", () => store.moveMergeFile(idx, idx - 1));
+            if (moveDownBtn) moveDownBtn.addEventListener("click", () => store.moveMergeFile(idx, idx + 1));
+            if (removeBtn) removeBtn.addEventListener("click", () => store.removeMergeFile(fileItem.id));
+
+            if (pwdInput) {
+                pwdInput.addEventListener("input", (e) => store.updateMergeFile(fileItem.id, { password: e.target.value }));
+            }
+            if (specInput) {
+                specInput.addEventListener("input", (e) => store.updateMergeFile(fileItem.id, { pagesSpec: e.target.value }));
+            }
+
+            mergeFileList.appendChild(itemEl);
+        });
+    }
+
+
+    function updateMergedStagePreview(files) {
+        if (store.state.currentMode !== "merge") return;
+        if (!files || files.length === 0) {
+            emptyStageNotice.classList.remove("hidden");
+            pdfCanvasContainer.classList.add("hidden");
+            thumbnailRibbon.classList.add("hidden");
+            return;
+        }
+        const firstFile = files[0];
+        if (firstFile && firstFile.pagePreviews && firstFile.pagePreviews.length > 0) {
+            emptyStageNotice.classList.add("hidden");
+            pdfCanvasContainer.classList.remove("hidden");
+            thumbnailRibbon.classList.remove("hidden");
+            pdfPageImg.src = firstFile.pagePreviews[0];
+            currentPageNumEl.textContent = "1";
+            const totalMergedPages = files.reduce((acc, f) => acc + (f.totalPages || 0), 0);
+            totalPagesNumEl.textContent = totalMergedPages;
+        }
+    }
+
 
     store.subscribe("document:loaded", (doc) => {
         docName.textContent = doc.filename;
@@ -1097,9 +1320,34 @@ document.addEventListener("DOMContentLoaded", () => {
             formData.append("count", dupCountInput.value);
             const repeatSeq = document.querySelector('input[name="dupSequence"]:checked').value;
             formData.append("repeat_sequence", repeatSeq);
+        if (customOutputFilenameInput && customOutputFilenameInput.value.trim()) {
+            formData.append("custom_filename", customOutputFilenameInput.value.trim());
+        }
+
+        } else if (store.state.currentMode === "merge") {
+            const mergeFiles = store.state.merge.files;
+            if (!mergeFiles || mergeFiles.length === 0) {
+                showStatus("Please add at least one PDF file to merge.", "error");
+                actionSpinner.classList.add("hidden");
+                processActionBtn.disabled = false;
+                return;
+            }
+            endpoint = "/api/merge";
+            const itemsPayload = mergeFiles.map(f => ({
+                file_id: f.fileId,
+                password: f.password || null,
+                pages_spec: f.pagesSpec || null
+            }));
+            formData.append("items_json", JSON.stringify(itemsPayload));
+            if (customOutputFilenameInput && customOutputFilenameInput.value.trim()) {
+                formData.append("custom_filename", customOutputFilenameInput.value.trim());
+            }
 
         } else if (store.state.currentMode === "clone") {
             endpoint = "/api/clone";
+            if (customOutputFilenameInput && customOutputFilenameInput.value.trim()) {
+                formData.append("custom_filename", customOutputFilenameInput.value.trim());
+            }
         }
 
         let downloadUrl = "";
@@ -1125,7 +1373,13 @@ document.addEventListener("DOMContentLoaded", () => {
             return response.blob();
         })
         .then(blob => {
-            const fileName = `${store.state.currentMode}_${doc.filename || 'document.pdf'}`;
+            const customVal = customOutputFilenameInput ? customOutputFilenameInput.value.trim() : "";
+            let fileName = customVal;
+            if (fileName) {
+                if (!fileName.toLowerCase().endsWith(".pdf")) fileName += ".pdf";
+            } else {
+                fileName = `${store.state.currentMode}_${doc.filename || 'document.pdf'}`;
+            }
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;

@@ -54,6 +54,14 @@ class PDFStudioStore {
                 pagesSpec: "",
                 count: 2,
                 repeatSequence: false
+            },
+
+            // Custom Output Filename
+            customOutputFilename: "",
+
+            // Merge Mode State Queue
+            merge: {
+                files: [] // Array of { id, fileId, filename, totalPages, isEncrypted, password, pagesSpec, pagePreviews }
             }
         };
 
@@ -89,6 +97,11 @@ class PDFStudioStore {
         }
     }
 
+    setCustomOutputFilename(filename) {
+        this.state.customOutputFilename = filename || "";
+        this.emit("output_filename:changed", this.state.customOutputFilename);
+    }
+
     setTheme(theme) {
         this.state.theme = theme;
         localStorage.setItem("pdf_studio_theme", theme);
@@ -118,6 +131,45 @@ class PDFStudioStore {
         if (pageNum >= 1 && pageNum <= this.state.document.totalPages) {
             this.state.document.currentPage = pageNum;
             this.emit("page:changed", pageNum);
+        }
+    }
+
+    // --- Merge Mode Queue Methods ---
+    addMergeFile(fileData) {
+        const item = {
+            id: "merge_item_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            fileId: fileData.fileId || null,
+            fileObj: fileData.fileObj || null,
+            filename: fileData.filename || "document.pdf",
+            totalPages: fileData.totalPages || 0,
+            isEncrypted: fileData.isEncrypted || false,
+            password: fileData.password || "",
+            pagesSpec: fileData.pagesSpec || "",
+            pagePreviews: fileData.pagePreviews || []
+        };
+        this.state.merge.files.push(item);
+        this.emit("merge:files_updated", this.state.merge.files);
+        return item;
+    }
+
+    removeMergeFile(id) {
+        this.state.merge.files = this.state.merge.files.filter(f => f.id !== id);
+        this.emit("merge:files_updated", this.state.merge.files);
+    }
+
+    moveMergeFile(fromIndex, toIndex) {
+        const list = this.state.merge.files;
+        if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return;
+        const [moved] = list.splice(fromIndex, 1);
+        list.splice(toIndex, 0, moved);
+        this.emit("merge:files_updated", this.state.merge.files);
+    }
+
+    updateMergeFile(id, newProps) {
+        const item = this.state.merge.files.find(f => f.id === id);
+        if (item) {
+            Object.assign(item, newProps);
+            this.emit("merge:files_updated", this.state.merge.files);
         }
     }
 

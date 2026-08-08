@@ -12,7 +12,7 @@ except ImportError:
 
 import fitz  # PyMuPDF for rendering page preview images
 
-from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf
+from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
@@ -53,6 +53,25 @@ def save_to_user_downloads(src_path, filename):
     except Exception as e:
         print(f"Warning: Could not copy to Downloads: {e}")
     return src_path
+
+def sanitize_output_filename(default_name, custom_name=None):
+    """
+    Sanitizes user custom output filename, enforcing valid characters and .pdf extension.
+    """
+    if not custom_name or not str(custom_name).strip():
+        return default_name
+
+    import re
+    clean_name = os.path.basename(str(custom_name).strip())
+    clean_name = re.sub(r'[^\w\s\.\-]', '_', clean_name).strip()
+    if not clean_name:
+        return default_name
+
+    if not clean_name.lower().endswith(".pdf"):
+        clean_name += ".pdf"
+
+    return clean_name
+
 
 
 @app.route("/")
@@ -258,7 +277,9 @@ def sign_pdf_endpoint():
     else:
         sig_input = None
 
-    output_filename = f"signed_{file_id[:6]}.pdf"
+    default_output_name = f"signed_{file_id[:6]}.pdf"
+    custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
+    output_filename = sanitize_output_filename(default_output_name, custom_name)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
     try:
@@ -329,7 +350,9 @@ def duplicate_pdf_endpoint():
         else:
             return jsonify({"error": "Missing input PDF file."}), 400
 
-    output_filename = f"duplicated_{file_id[:6]}.pdf"
+    default_output_name = f"duplicated_{file_id[:6]}.pdf"
+    custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
+    output_filename = sanitize_output_filename(default_output_name, custom_name)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
     try:
@@ -390,7 +413,9 @@ def clone_pdf_endpoint():
         else:
             return jsonify({"error": "Missing input PDF file."}), 400
 
-    output_filename = f"cloned_{file_id[:6]}.pdf"
+    default_output_name = f"cloned_{file_id[:6]}.pdf"
+    custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
+    output_filename = sanitize_output_filename(default_output_name, custom_name)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
     try:
@@ -407,6 +432,85 @@ def clone_pdf_endpoint():
             return jsonify({
                 "success": True,
                 "message": "PDF cloned & decrypted successfully!",
+                "download_url": download_url,
+                "filename": output_filename,
+                "save_location": saved_user_path
+            })
+
+        response = send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype="application/pdf"
+        )
+        response.headers["X-Download-Url"] = download_url
+        response.headers["X-File-Path"] = saved_user_path
+        response.headers["Access-Control-Expose-Headers"] = "X-Download-Url, X-File-Path"
+        return response
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/merge", methods=["POST"])
+def merge_pdf_endpoint():
+    """
+    Merges multiple PDF files into a single document.
+    Accepts files via items_json referencing file_ids, or uploaded files.
+    Supports custom_filename parameter.
+    """
+    items_json = request.form.get("items_json")
+    custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
+
+    pdf_inputs = []
+
+    if items_json:
+        try:
+            items = json.loads(items_json)
+            for item in items:
+                file_id = item.get("file_id")
+                pwd = item.get("password") or None
+                spec = item.get("pages_spec") or None
+                if file_id:
+                    input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
+                    if os.path.exists(input_path):
+                        pdf_inputs.append({
+                            "path": input_path,
+                            "password": pwd,
+                            "pages_spec": spec
+                        })
+        except Exception as e:
+            return jsonify({"error": f"Invalid items_json payload: {e}"}), 400
+
+    uploaded_files = request.files.getlist("files") or request.files.getlist("files[]")
+    if uploaded_files:
+        for ufile in uploaded_files:
+            if ufile and ufile.filename:
+                fid = str(uuid.uuid4())
+                tpath = os.path.join(UPLOAD_TEMP_DIR, f"{fid}.pdf")
+                ufile.save(tpath)
+                pdf_inputs.append({
+                    "path": tpath,
+                    "password": None,
+                    "pages_spec": None
+                })
+
+    if not pdf_inputs:
+        return jsonify({"error": "No PDF files provided to merge."}), 400
+
+    default_output_name = f"merged_{uuid.uuid4().hex[:6]}.pdf"
+    output_filename = sanitize_output_filename(default_output_name, custom_name)
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    try:
+        merge_pdfs(pdf_inputs, output_path)
+
+        saved_user_path = save_to_user_downloads(output_path, output_filename)
+        download_url = f"/output/{output_filename}"
+
+        if request.headers.get("Accept") == "application/json" or request.is_json or True:
+            return jsonify({
+                "success": True,
+                "message": "PDFs merged successfully!",
                 "download_url": download_url,
                 "filename": output_filename,
                 "save_location": saved_user_path

@@ -1,6 +1,6 @@
 import click
 import sys
-from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf
+from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs
 
 @click.group()
 def cli():
@@ -120,6 +120,44 @@ def add_sig(input_file, output_file, signature, pages, x, y, width, height, pass
     except Exception as e:
         click.secho(f"Error: {e}", fg="red", err=True)
         sys.exit(1)
+
+@cli.command(name="merge")
+@click.argument('input_files', nargs=-1, type=click.Path(exists=False, dir_okay=False), required=True)
+@click.option('--output', '-o', default=None, type=click.Path(writable=True, dir_okay=False), help='Output PDF path. If omitted, the last argument is treated as the output file.')
+@click.option('--password', '-p', multiple=True, help='Password(s) for encrypted input PDFs.')
+def merge_cmd(input_files, output, password):
+    """
+    Merge multiple PDF files into a single output PDF.
+    """
+    import os
+    files = list(input_files)
+    if output:
+        output_file = output
+    else:
+        if len(files) < 2:
+            click.secho("Error: Please specify at least one input file and an output file path.", fg="red", err=True)
+            sys.exit(1)
+        output_file = files.pop()
+
+    for f in files:
+        if not os.path.exists(f):
+            click.secho(f"Error: Input file '{f}' does not exist.", fg="red", err=True)
+            sys.exit(1)
+
+    passwords = list(password)
+    pdf_inputs = []
+    for idx, fpath in enumerate(files):
+        pwd = passwords[idx] if idx < len(passwords) else (passwords[0] if len(passwords) == 1 else None)
+        pdf_inputs.append({"path": fpath, "password": pwd})
+
+    click.echo(f"Merging {len(files)} files into {output_file}...")
+    try:
+        merge_pdfs(pdf_inputs, output_file)
+        click.secho("Success! PDFs merged successfully.", fg="green")
+    except Exception as e:
+        click.secho(f"Error: {e}", fg="red", err=True)
+        sys.exit(1)
+
 
 @cli.command(name="web")
 @click.option('--host', default='127.0.0.1', help='Host address to bind to.')

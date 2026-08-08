@@ -59,16 +59,19 @@
             <!-- Mode Tabs -->
             <div class="sidebar-mode-tabs">
                 <button class="segmented-item active" data-mode="sign">✍️ Sign PDF</button>
+                <button class="segmented-item" data-mode="merge">🔀 Merge</button>
                 <button class="segmented-item" data-mode="duplicate">📑 Duplicate</button>
                 <button class="segmented-item" data-mode="clone">🔓 Clone</button>
             </div>
+
             
-            <!-- Step 1: Upload Document Card -->
-            <div class="apple-card">
+            <!-- Step 1: Upload Document Card (Hidden in Merge mode) -->
+            <div id="documentUploadCard" class="apple-card">
                 <div class="card-header">
                     <span class="step-num">1</span>
                     <h3>Document Upload</h3>
                 </div>
+
                 
                 <div id="dropzone" class="upload-dropzone">
                     <input type="file" id="pdfFileInput" accept="application/pdf" class="file-input-hidden">
@@ -197,13 +200,16 @@
                     <span class="step-num">2</span>
                     <h3>Duplication Settings</h3>
                 </div>
+                <p class="section-desc merge-subtext">
+                    Duplicate specific pages or the entire PDF document multiple times with custom sequence arrangements.
+                </p>
 
-                <div class="form-group">
+                <div class="form-group margin-top">
                     <label class="form-label">Pages to Duplicate</label>
                     <input type="text" id="dupPagesInput" class="apple-input" placeholder="Leave empty for all pages (e.g. 1-3,5)">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group margin-top">
                     <label class="form-label">Duplication Count</label>
                     <div class="stepper-input">
                         <button id="stepperMinusBtn" class="stepper-btn">-</button>
@@ -212,7 +218,7 @@
                     </div>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group margin-top">
                     <label class="form-label">Sequence Layout</label>
                     <div class="radio-group-apple">
                         <label class="radio-card">
@@ -233,25 +239,62 @@
                 </div>
             </div>
 
+
             <!-- CLONE MODE CONTROLS -->
             <div id="cloneControlsCard" class="apple-card mode-card hidden">
                 <div class="card-header">
                     <span class="step-num">2</span>
                     <h3>Clone & Decrypt</h3>
                 </div>
-                <p class="section-desc">
+                <p class="section-desc merge-subtext">
                     Creates an exact duplicate copy of your PDF file. If the file is password-protected, entering the password will decrypt it, producing an unlocked copy.
                 </p>
             </div>
 
-            <!-- Save Button -->
+
+            <!-- MERGE MODE CONTROLS -->
+            <div id="mergeControlsCard" class="apple-card mode-card hidden">
+                <div class="card-header flex-between">
+                    <div class="header-title-group">
+                        <span class="step-num">2</span>
+                        <h3>Merge Settings & Order</h3>
+                    </div>
+                </div>
+
+
+                
+                <p class="section-desc merge-subtext">
+                    Add multiple PDF files to combine. Drag or use the arrow buttons to arrange their merge sequence.
+                </p>
+
+
+                <div id="mergeDropzone" class="upload-dropzone margin-top">
+                    <input type="file" id="mergeFileInput" accept="application/pdf" multiple class="file-input-hidden">
+                    <div class="dropzone-content">
+                        <div class="drop-icon">➕</div>
+                        <p class="drop-title">Add PDFs to Merge</p>
+                        <p class="drop-subtitle">Drop files here or click to select</p>
+                    </div>
+                </div>
+
+                <div id="mergeFileList" class="merge-file-list margin-top">
+                    <!-- Dynamic merge file items rendered via JS -->
+                </div>
+            </div>
+
+            <!-- Save Button & Output Filename -->
             <div class="action-card">
+                <div class="form-group margin-bottom-sm">
+                    <label for="customOutputFilenameInput" class="form-label">🏷️ Custom Output Filename (Optional)</label>
+                    <input type="text" id="customOutputFilenameInput" class="apple-input" placeholder="e.g. my_merged_document.pdf">
+                </div>
                 <button id="processActionBtn" class="apple-btn primary width-full save-btn" disabled>
                     <span id="actionBtnText">Save</span>
                     <div id="actionSpinner" class="spinner hidden"></div>
                 </button>
                 <div id="statusAlert" class="status-alert hidden"></div>
             </div>
+
 
         </aside>
 

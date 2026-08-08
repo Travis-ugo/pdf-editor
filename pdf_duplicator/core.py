@@ -113,6 +113,53 @@ def duplicate_pages(input_path, output_path, pages_spec=None, count=1, password=
     with open(output_path, "wb") as f:
         writer.write(f)
 
+def merge_pdfs(pdf_inputs, output_path):
+    """
+    Merges multiple PDF documents into a single PDF.
+    
+    :param pdf_inputs: List of PDF file paths (str) or dict objects:
+                       [{ 'path': '...', 'password': '...', 'pages_spec': '...' }]
+    :param output_path: Path to output PDF file
+    """
+    if not pdf_inputs or len(pdf_inputs) == 0:
+        raise ValueError("At least one PDF file must be provided for merging.")
+
+    writer = PdfWriter()
+
+    for item in pdf_inputs:
+        if isinstance(item, str):
+            input_path = item
+            password = None
+            pages_spec = None
+        elif isinstance(item, dict):
+            input_path = item.get("path")
+            password = item.get("password")
+            pages_spec = item.get("pages_spec")
+        else:
+            raise ValueError(f"Invalid PDF input format: {item}")
+
+        if not input_path or not os.path.exists(input_path):
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+
+        reader = PdfReader(input_path)
+
+        if reader.is_encrypted:
+            if not password:
+                raise ValueError(f"The PDF '{os.path.basename(input_path)}' is encrypted. Please provide a password.")
+            decrypted = reader.decrypt(password)
+            if decrypted == 0:
+                raise ValueError(f"Incorrect password for '{os.path.basename(input_path)}'.")
+
+        total_pages = len(reader.pages)
+        indices = parse_page_range(pages_spec, total_pages)
+
+        for idx in indices:
+            writer.add_page(reader.pages[idx])
+
+    with open(output_path, "wb") as f:
+        writer.write(f)
+
+
 def _process_image_input(sig_input):
     import io
     import base64
