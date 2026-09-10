@@ -5,10 +5,7 @@ import json
 import base64
 import tempfile
 from flask import Flask, render_template, request, send_file, jsonify
-try:
-    from pypdf import PdfReader
-except ImportError:
-    from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 import fitz  # PyMuPDF for rendering page preview images
 

@@ -789,6 +789,36 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
 
+    // --- Coordinate System Transformations ---
+    function screenToDocument(clientX, clientY) {
+        const rect = pdfCanvasContainer.getBoundingClientRect();
+        const scale = getScaleFactor();
+        return {
+            x: (clientX - rect.left) / scale,
+            y: (clientY - rect.top) / scale
+        };
+    }
+
+    function documentToLocal(docX, docY, center, angleRad) {
+        const dx = docX - center.x;
+        const dy = docY - center.y;
+        const cosA = Math.cos(-angleRad);
+        const sinA = Math.sin(-angleRad);
+        return {
+            x: dx * cosA - dy * sinA,
+            y: dx * sinA + dy * cosA
+        };
+    }
+
+    function localToDocument(localX, localY, center, angleRad) {
+        const cosA = Math.cos(angleRad);
+        const sinA = Math.sin(angleRad);
+        return {
+            x: center.x + (localX * cosA - localY * sinA),
+            y: center.y + (localX * sinA + localY * cosA)
+        };
+    }
+
     function clearStageOverlays() {
         const existingOverlays = pdfCanvasContainer.querySelectorAll(".signature-overlay");
         existingOverlays.forEach(el => el.remove());
@@ -810,7 +840,6 @@ document.addEventListener("DOMContentLoaded", () => {
         renderPlacedSidebarList(activeSigs);
 
         activeSigs.forEach((sig) => {
-            // Check if signature belongs to current page or all pages
             if (sig.page !== doc.currentPage && signPagesMode.value !== "all") return;
 
             const overlay = document.createElement("div");
@@ -822,26 +851,28 @@ document.addEventListener("DOMContentLoaded", () => {
             overlay.style.height = `${sig.height * scale}px`;
             overlay.style.transform = `rotate(${sig.rotation || 0}deg)`;
             overlay.style.transformOrigin = "center center";
+            overlay.style.opacity = sig.opacity !== undefined ? sig.opacity : 1.0;
+            overlay.style.zIndex = sig.zIndex || 1;
 
             overlay.innerHTML = `
                 <div class="overlay-action-bar">
-                    <button class="overlay-action-btn btn-confirm" title="Confirm & Lock Placement">✓</button>
+                    <button class="overlay-action-btn btn-confirm" title="Confirm Placement">✓</button>
                     <button class="overlay-action-btn btn-rotate" title="Rotate 90° Clockwise">↻</button>
                     <button class="overlay-action-btn btn-remove" title="Remove Signature">✕</button>
                 </div>
                 <div class="rotate-stem"></div>
                 <div class="handle-rot" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)">⟳</div>
-                <div class="corner-rot-zone rot-nw" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
-                <div class="corner-rot-zone rot-ne" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
-                <div class="corner-rot-zone rot-sw" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
-                <div class="corner-rot-zone rot-se" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
                 <div class="rot-live-tooltip hidden">0°</div>
                 <div class="overlay-inner">
                     <img src="${sig.dataUrl}" alt="Signature">
                 </div>
                 <div class="resize-handle handle-nw" data-handle="nw"></div>
+                <div class="resize-handle handle-n" data-handle="n"></div>
                 <div class="resize-handle handle-ne" data-handle="ne"></div>
+                <div class="resize-handle handle-w" data-handle="w"></div>
+                <div class="resize-handle handle-e" data-handle="e"></div>
                 <div class="resize-handle handle-sw" data-handle="sw"></div>
+                <div class="resize-handle handle-s" data-handle="s"></div>
                 <div class="resize-handle handle-se" data-handle="se"></div>
             `;
 
@@ -859,8 +890,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 e.stopPropagation();
                 let nextRot = ((sig.rotation || 0) + 90) % 360;
                 if (nextRot > 180) nextRot -= 360;
-                store.updateSignatureOnDoc(sig.id, { rotation: nextRot });
-                syncRotationInputs(nextRot);
+                store.updateSignatureOnDoc(sig.id, { rotation: nextRot }, true);
+                syncInspectorInputs(sig);
             });
 
             removeBtn.addEventListener("click", (e) => {
@@ -868,7 +899,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 store.removeSignatureFromDoc(sig.id);
             });
 
-            // Drag & Resize Listeners
             attachOverlayDragAndResize(overlay, sig);
 
             pdfCanvasContainer.appendChild(overlay);
@@ -897,11 +927,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             item.addEventListener("click", () => {
                 selectedSigId = sig.id;
-                sigXInput.value = Math.round(sig.x);
-                sigYInput.value = Math.round(sig.y);
-                sigWInput.value = Math.round(sig.width);
-                sigHInput.value = Math.round(sig.height);
-                syncRotationInputs(sig.rotation || 0);
+                syncInspectorInputs(sig);
                 renderStageSignatures();
             });
 
@@ -924,32 +950,45 @@ document.addEventListener("DOMContentLoaded", () => {
         updateSaveBtn();
     });
 
-    // Attach Drag, Resize & Rotate to an Overlay Box
+    // Attach Microsoft Word-Style Drag, Resize & Rotate to an Overlay Box
     function attachOverlayDragAndResize(overlay, sig) {
         let isDragging = false;
         let isResizing = false;
         let isRotating = false;
         let resizeHandle = null;
-        let startX = 0, startY = 0;
-        let initL = 0, initT = 0, initW = 0, initH = 0;
+
+        let initX = 0, initY = 0, initW = 0, initH = 0;
         let initRot = 0, startAngle = 0;
-        let centerPt = { x: 0, y: 0 };
+        let initCenter = { x: 0, y: 0 };
+        let centerScreen = { x: 0, y: 0 };
+        let startPointerDoc = { x: 0, y: 0 };
+
         const liveTooltip = overlay.querySelector(".rot-live-tooltip");
 
         overlay.addEventListener("mousedown", (e) => {
             selectedSigId = sig.id;
-            syncRotationInputs(sig.rotation || 0);
+            syncInspectorInputs(sig);
 
-            // Check if clicking rotation handle or corner rotation zone (Word style)
-            if (e.target.closest(".handle-rot") || e.target.closest(".corner-rot-zone") || e.target.dataset.handle === "rot") {
+            if (e.target.closest(".overlay-action-btn")) return;
+
+            const scale = getScaleFactor();
+            startPointerDoc = screenToDocument(e.clientX, e.clientY);
+
+            initX = sig.x;
+            initY = sig.y;
+            initW = sig.width;
+            initH = sig.height;
+            initRot = sig.rotation || 0;
+            initCenter = { x: initX + initW / 2, y: initY + initH / 2 };
+
+            if (e.target.closest(".handle-rot") || e.target.dataset.handle === "rot") {
                 isRotating = true;
                 const rect = overlay.getBoundingClientRect();
-                centerPt = {
+                centerScreen = {
                     x: rect.left + rect.width / 2,
                     y: rect.top + rect.height / 2
                 };
-                initRot = sig.rotation || 0;
-                startAngle = Math.atan2(e.clientY - centerPt.y, e.clientX - centerPt.x) * (180 / Math.PI);
+                startAngle = Math.atan2(e.clientY - centerScreen.y, e.clientX - centerScreen.x) * (180 / Math.PI);
                 if (liveTooltip) {
                     liveTooltip.textContent = `${initRot}°`;
                     liveTooltip.classList.remove("hidden");
@@ -960,43 +999,30 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (e.target.classList.contains("resize-handle")) {
                 isResizing = true;
                 resizeHandle = e.target.dataset.handle;
-            } else if (!e.target.classList.contains("overlay-action-btn")) {
-                isDragging = true;
             } else {
-                return;
+                isDragging = true;
             }
-
-            startX = e.clientX;
-            startY = e.clientY;
-            initL = parseFloat(overlay.style.left) || 0;
-            initT = parseFloat(overlay.style.top) || 0;
-            initW = overlay.offsetWidth;
-            initH = overlay.offsetHeight;
 
             e.preventDefault();
         });
 
         const onMouseMove = (e) => {
             if (!isDragging && !isResizing && !isRotating) return;
-            const deltaX = e.clientX - startX;
-            const deltaY = e.clientY - startY;
             const scale = getScaleFactor();
+            const currPointerDoc = screenToDocument(e.clientX, e.clientY);
 
             if (isRotating) {
-                // Calculate dynamic, smooth 360-degree rotation relative to center
-                const currentAngle = Math.atan2(e.clientY - centerPt.y, e.clientX - centerPt.x) * (180 / Math.PI);
+                const currentAngle = Math.atan2(e.clientY - centerScreen.y, e.clientX - centerScreen.x) * (180 / Math.PI);
                 const delta = currentAngle - startAngle;
                 let deg = initRot + delta;
 
                 if (e.shiftKey) {
-                    // Hold Shift to snap to 15-degree steps like Microsoft Word
                     deg = Math.round(deg / 15) * 15;
                 } else {
-                    // Dynamic smooth 1-degree rotation
                     deg = Math.round(deg);
                 }
 
-                deg = (deg % 360 + 360) % 360;
+                deg = ((deg % 360) + 360) % 360;
                 if (deg > 180) deg -= 360;
 
                 sig.rotation = deg;
@@ -1007,65 +1033,103 @@ document.addEventListener("DOMContentLoaded", () => {
                     liveTooltip.classList.remove("hidden");
                 }
             } else if (isDragging) {
-                let newL = Math.max(0, Math.min(initL + deltaX, pdfPageImg.clientWidth - overlay.offsetWidth));
-                let newT = Math.max(0, Math.min(initT + deltaY, pdfPageImg.clientHeight - overlay.offsetHeight));
-                overlay.style.left = `${newL}px`;
-                overlay.style.top = `${newT}px`;
+                const deltaX = currPointerDoc.x - startPointerDoc.x;
+                const deltaY = currPointerDoc.y - startPointerDoc.y;
+                let newX = Math.round(Math.max(0, initX + deltaX));
+                let newY = Math.round(Math.max(0, initY + deltaY));
 
-                sigXInput.value = Math.round(newL / scale);
-                sigYInput.value = Math.round(newT / scale);
+                overlay.style.left = `${newX * scale}px`;
+                overlay.style.top = `${newY * scale}px`;
+
+                sig.x = newX;
+                sig.y = newY;
+                if (sigXInput) sigXInput.value = newX;
+                if (sigYInput) sigYInput.value = newY;
             } else if (isResizing) {
-                const ratio = (sig.aspectRatio) || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
-                let newW = initW, newH = initH, newL = initL, newT = initT;
+                const rotRad = (initRot * Math.PI) / 180;
+                const localPointer = documentToLocal(currPointerDoc.x, currPointerDoc.y, initCenter, rotRad);
+                const ratio = sig.aspectRatio || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
+
+                const L = -initW / 2;
+                const R = initW / 2;
+                const T = -initH / 2;
+                const B = initH / 2;
+
+                let newL = L, newR = R, newT = T, newB = B;
 
                 if (resizeHandle === "se") {
-                    const change = (Math.abs(deltaX) >= Math.abs(deltaY * ratio)) ? deltaX : (deltaY * ratio);
-                    newW = Math.max(35, initW + change);
-                    newH = Math.max(15, Math.round(newW / ratio));
-                } else if (resizeHandle === "sw") {
-                    const change = (Math.abs(-deltaX) >= Math.abs(deltaY * ratio)) ? -deltaX : (deltaY * ratio);
-                    newW = Math.max(35, initW + change);
-                    newH = Math.max(15, Math.round(newW / ratio));
-                    newL = initL + (initW - newW);
-                } else if (resizeHandle === "ne") {
-                    const change = (Math.abs(deltaX) >= Math.abs(-deltaY * ratio)) ? deltaX : (-deltaY * ratio);
-                    newW = Math.max(35, initW + change);
-                    newH = Math.max(15, Math.round(newW / ratio));
-                    newT = initT + (initH - newH);
+                    newR = localPointer.x;
+                    newB = localPointer.y;
+                    let newW = Math.max(20, newR - L);
+                    let newH = Math.max(10, Math.round(newW / ratio));
+                    newR = L + newW;
+                    newB = T + newH;
                 } else if (resizeHandle === "nw") {
-                    const change = (Math.abs(-deltaX) >= Math.abs(-deltaY * ratio)) ? -deltaX : (-deltaY * ratio);
-                    newW = Math.max(35, initW + change);
-                    newH = Math.max(15, Math.round(newW / ratio));
-                    newL = initL + (initW - newW);
-                    newT = initT + (initH - newH);
+                    newL = localPointer.x;
+                    newT = localPointer.y;
+                    let newW = Math.max(20, R - newL);
+                    let newH = Math.max(10, Math.round(newW / ratio));
+                    newL = R - newW;
+                    newT = B - newH;
+                } else if (resizeHandle === "ne") {
+                    newR = localPointer.x;
+                    newT = localPointer.y;
+                    let newW = Math.max(20, newR - L);
+                    let newH = Math.max(10, Math.round(newW / ratio));
+                    newR = L + newW;
+                    newT = B - newH;
+                } else if (resizeHandle === "sw") {
+                    newL = localPointer.x;
+                    newB = localPointer.y;
+                    let newW = Math.max(20, R - newL);
+                    let newH = Math.max(10, Math.round(newW / ratio));
+                    newL = R - newW;
+                    newT = B - newH;
+                } else if (resizeHandle === "n") {
+                    newT = Math.min(B - 10, localPointer.y);
+                } else if (resizeHandle === "s") {
+                    newB = Math.max(T + 10, localPointer.y);
+                } else if (resizeHandle === "w") {
+                    newL = Math.min(R - 20, localPointer.x);
+                } else if (resizeHandle === "e") {
+                    newR = Math.max(L + 20, localPointer.x);
                 }
 
-                overlay.style.left = `${newL}px`;
-                overlay.style.top = `${newT}px`;
-                overlay.style.width = `${newW}px`;
-                overlay.style.height = `${newH}px`;
+                const finalW = Math.round(newR - newL);
+                const finalH = Math.round(newB - newT);
+                const localCenterNew = { x: (newL + newR) / 2, y: (newT + newB) / 2 };
 
-                sigXInput.value = Math.round(newL / scale);
-                sigYInput.value = Math.round(newT / scale);
-                sigWInput.value = Math.round(newW / scale);
-                sigHInput.value = Math.round(newH / scale);
+                const docCenterNew = localToDocument(localCenterNew.x, localCenterNew.y, initCenter, rotRad);
+                const finalX = Math.round(docCenterNew.x - finalW / 2);
+                const finalY = Math.round(docCenterNew.y - finalH / 2);
+
+                overlay.style.left = `${finalX * scale}px`;
+                overlay.style.top = `${finalY * scale}px`;
+                overlay.style.width = `${finalW * scale}px`;
+                overlay.style.height = `${finalH * scale}px`;
+
+                sig.x = finalX;
+                sig.y = finalY;
+                sig.width = finalW;
+                sig.height = finalH;
+
+                if (sigXInput) sigXInput.value = finalX;
+                if (sigYInput) sigYInput.value = finalY;
+                if (sigWInput) sigWInput.value = finalW;
+                if (sigHInput) sigHInput.value = finalH;
             }
         };
 
         const onMouseUp = () => {
-            if (isRotating) {
+            if (isRotating || isDragging || isResizing) {
                 store.updateSignatureOnDoc(sig.id, {
+                    x: sig.x,
+                    y: sig.y,
+                    width: sig.width,
+                    height: sig.height,
                     rotation: sig.rotation || 0
-                });
+                }, true);
                 if (liveTooltip) liveTooltip.classList.add("hidden");
-            } else if (isDragging || isResizing) {
-                const scale = getScaleFactor();
-                store.updateSignatureOnDoc(sig.id, {
-                    x: Math.round((parseFloat(overlay.style.left) || 0) / scale),
-                    y: Math.round((parseFloat(overlay.style.top) || 0) / scale),
-                    width: Math.round(overlay.offsetWidth / scale),
-                    height: Math.round(overlay.offsetHeight / scale)
-                });
             }
             isDragging = false;
             isResizing = false;
@@ -1079,7 +1143,23 @@ document.addEventListener("DOMContentLoaded", () => {
         window.addEventListener("mouseup", onMouseUp);
     }
 
-    // --- Inputs & Undo/Redo ---
+    // --- Inspector Inputs & Handlers ---
+    const sigOpacitySlider = document.getElementById("sigOpacitySlider");
+    const sigOpacityValue = document.getElementById("sigOpacityValue");
+    const sigZUpBtn = document.getElementById("sigZUpBtn");
+    const sigZDownBtn = document.getElementById("sigZDownBtn");
+
+    function syncInspectorInputs(sig) {
+        if (!sig) return;
+        if (sigXInput) sigXInput.value = Math.round(sig.x);
+        if (sigYInput) sigYInput.value = Math.round(sig.y);
+        if (sigWInput) sigWInput.value = Math.round(sig.width);
+        if (sigHInput) sigHInput.value = Math.round(sig.height);
+        syncRotationInputs(sig.rotation || 0);
+        if (sigOpacitySlider) sigOpacitySlider.value = Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100);
+        if (sigOpacityValue) sigOpacityValue.textContent = `${Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100)}%`;
+    }
+
     function syncRotationInputs(deg) {
         deg = Math.round(deg || 0);
         if (sigRotSlider) sigRotSlider.value = deg;
@@ -1101,7 +1181,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sigRotResetBtn) {
         sigRotResetBtn.addEventListener("click", () => {
             if (selectedSigId) {
-                store.updateSignatureOnDoc(selectedSigId, { rotation: 0 });
+                store.updateSignatureOnDoc(selectedSigId, { rotation: 0 }, true);
                 syncRotationInputs(0);
                 const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
                 if (ov) ov.style.transform = "rotate(0deg)";
@@ -1115,10 +1195,44 @@ document.addEventListener("DOMContentLoaded", () => {
                 const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
                 let nextRot = ((sig && sig.rotation ? sig.rotation : 0) + 90) % 360;
                 if (nextRot > 180) nextRot -= 360;
-                store.updateSignatureOnDoc(selectedSigId, { rotation: nextRot });
+                store.updateSignatureOnDoc(selectedSigId, { rotation: nextRot }, true);
                 syncRotationInputs(nextRot);
                 const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
                 if (ov) ov.style.transform = `rotate(${nextRot}deg)`;
+            }
+        });
+    }
+
+    if (sigOpacitySlider) {
+        sigOpacitySlider.addEventListener("input", () => {
+            const opacityVal = (parseInt(sigOpacitySlider.value) || 100) / 100;
+            if (sigOpacityValue) sigOpacityValue.textContent = `${Math.round(opacityVal * 100)}%`;
+            if (selectedSigId) {
+                store.updateSignatureOnDoc(selectedSigId, { opacity: opacityVal });
+                const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
+                if (ov) ov.style.opacity = opacityVal;
+            }
+        });
+    }
+
+    if (sigZUpBtn) {
+        sigZUpBtn.addEventListener("click", () => {
+            if (selectedSigId) {
+                const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+                if (sig) {
+                    store.updateSignatureOnDoc(selectedSigId, { zIndex: (sig.zIndex || 1) + 1 }, true);
+                }
+            }
+        });
+    }
+
+    if (sigZDownBtn) {
+        sigZDownBtn.addEventListener("click", () => {
+            if (selectedSigId) {
+                const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+                if (sig) {
+                    store.updateSignatureOnDoc(selectedSigId, { zIndex: Math.max(1, (sig.zIndex || 1) - 1) }, true);
+                }
             }
         });
     }
@@ -1133,7 +1247,7 @@ document.addEventListener("DOMContentLoaded", () => {
             store.updateSignatureOnDoc(selectedSigId, {
                 width: newW,
                 height: newH
-            });
+            }, true);
         }
     });
 
@@ -1147,7 +1261,7 @@ document.addEventListener("DOMContentLoaded", () => {
             store.updateSignatureOnDoc(selectedSigId, {
                 width: newW,
                 height: newH
-            });
+            }, true);
         }
     });
 
@@ -1155,7 +1269,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (selectedSigId) {
             store.updateSignatureOnDoc(selectedSigId, {
                 x: parseFloat(sigXInput.value) || 50
-            });
+            }, true);
         }
     });
 
@@ -1163,7 +1277,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (selectedSigId) {
             store.updateSignatureOnDoc(selectedSigId, {
                 y: parseFloat(sigYInput.value) || 50
-            });
+            }, true);
         }
     });
 
@@ -1536,6 +1650,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 width: Number(s.width) || 150,
                 height: Number(s.height) || 60,
                 rotation: Number(s.rotation) || 0,
+                scale_x: Number(s.scaleX) || 1.0,
+                scale_y: Number(s.scaleY) || 1.0,
+                opacity: s.opacity !== undefined ? Number(s.opacity) : 1.0,
+                z_index: Number(s.zIndex) || 1,
+                locked: !!s.locked,
                 y_from_top: true
             }));
 
@@ -1785,11 +1904,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 const sigsPayload = activeSigs.map(s => ({
                     signature_img: s.dataUrl,
                     pages_spec: pagesModeVal === "current" ? (s.page != null ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
-                    x: s.x,
-                    y: s.y,
-                    width: s.width,
-                    height: s.height,
+                    x: Number(s.x) || 50,
+                    y: Number(s.y) || 50,
+                    width: Number(s.width) || 150,
+                    height: Number(s.height) || 60,
                     rotation: Number(s.rotation) || 0,
+                    scale_x: Number(s.scaleX) || 1.0,
+                    scale_y: Number(s.scaleY) || 1.0,
+                    opacity: s.opacity !== undefined ? Number(s.opacity) : 1.0,
+                    z_index: Number(s.zIndex) || 1,
+                    locked: !!s.locked,
                     y_from_top: true
                 }));
                 formData.append("signatures_json", JSON.stringify(sigsPayload));

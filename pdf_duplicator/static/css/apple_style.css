@@ -1091,6 +1091,7 @@ body {
     border: 1px solid var(--apple-blue);
     border-radius: 50%;
     z-index: 15;
+    box-sizing: border-box;
 }
 
 .handle-nw {
@@ -1099,16 +1100,44 @@ body {
     cursor: nwse-resize;
 }
 
+.handle-n {
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+
 .handle-ne {
     top: -6px;
     right: -6px;
     cursor: nesw-resize;
 }
 
+.handle-w {
+    top: 50%;
+    left: -6px;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
+.handle-e {
+    top: 50%;
+    right: -6px;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+}
+
 .handle-sw {
     bottom: -6px;
     left: -6px;
     cursor: nesw-resize;
+}
+
+.handle-s {
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
 }
 
 .handle-se {

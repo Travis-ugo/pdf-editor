@@ -17,10 +17,7 @@ def clone(input_file, output_file, password):
     """
     click.echo(f"Cloning {input_file} to {output_file}...")
     
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        from PyPDF2 import PdfReader
+    from pypdf import PdfReader
     try:
         reader = PdfReader(input_file)
         is_encrypted = reader.is_encrypted
@@ -51,10 +48,7 @@ def duplicate_pgs(input_file, output_file, pages, count, password, repeat_sequen
     """
     click.echo(f"Duplicating pages of {input_file} to {output_file} (count={count})...")
     
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        from PyPDF2 import PdfReader
+    from pypdf import PdfReader
     try:
         reader = PdfReader(input_file)
         is_encrypted = reader.is_encrypted
@@ -90,10 +84,7 @@ def add_sig(input_file, output_file, signature, pages, x, y, width, height, pass
     """
     click.echo(f"Adding signature {signature} to {input_file} -> {output_file}...")
     
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        from PyPDF2 import PdfReader
+    from pypdf import PdfReader
     try:
         reader = PdfReader(input_file)
         is_encrypted = reader.is_encrypted

@@ -1,9 +1,6 @@
 import os
 
-try:
-    from pypdf import PdfReader, PdfWriter
-except ImportError:
-    from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 
 def parse_page_range(pages_spec, total_pages):
@@ -272,6 +269,9 @@ def add_signature_to_pdf(
             spec = pages_spec
         target_idxs = set(parse_page_range(spec, total_pages))
         rot_val = float(sig_item.get("rotation", 0) or rotation or 0)
+        opacity_val = float(sig_item.get("opacity", 1.0) if sig_item.get("opacity") is not None else 1.0)
+        z_index_val = int(sig_item.get("z_index", 1) or sig_item.get("zIndex", 1) or 1)
+
         processed_sigs.append({
             "img_obj": img_obj,
             "target_indices": target_idxs,
@@ -280,6 +280,8 @@ def add_signature_to_pdf(
             "width": float(sig_item.get("width", 150)),
             "height": float(sig_item.get("height", 50)),
             "rotation": rot_val,
+            "opacity": opacity_val,
+            "z_index": z_index_val,
             "y_from_top": sig_item.get("y_from_top", True)
         })
 
@@ -290,6 +292,7 @@ def add_signature_to_pdf(
         page_height = float(page.mediabox.height)
 
         matching_sigs = [s for s in processed_sigs if idx in s["target_indices"]]
+        matching_sigs.sort(key=lambda s: s["z_index"])
 
         if matching_sigs:
             packet = io.BytesIO()
@@ -297,10 +300,19 @@ def add_signature_to_pdf(
             for sig in matching_sigs:
                 pdf_y = page_height - sig["y"] - sig["height"] if sig["y_from_top"] else sig["y"]
                 rot = float(sig.get("rotation", 0) or 0) % 360
+                opacity = float(sig.get("opacity", 1.0))
+
+                can.saveState()
+                if opacity < 1.0:
+                    try:
+                        can.setFillAlpha(opacity)
+                        can.setStrokeAlpha(opacity)
+                    except AttributeError:
+                        pass
+
                 if rot != 0:
                     center_x = sig["x"] + sig["width"] / 2.0
                     center_y = pdf_y + sig["height"] / 2.0
-                    can.saveState()
                     can.translate(center_x, center_y)
                     can.rotate(-rot)
                     can.translate(-center_x, -center_y)
@@ -316,8 +328,7 @@ def add_signature_to_pdf(
                     anchor='c'
                 )
 
-                if rot != 0:
-                    can.restoreState()
+                can.restoreState()
 
             can.save()
             packet.seek(0)

@@ -203,6 +203,21 @@
                             <button id="sigRot90Btn" type="button" class="apple-btn secondary small" title="Rotate +90° clockwise" style="padding: 3px 8px; font-size: 0.75rem;">+90°</button>
                         </div>
                     </div>
+                    <!-- Signature Opacity, Z-Index & Lock Controls -->
+                    <div class="form-group margin-top-sm" style="padding-top: 6px; border-top: 0.5px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <label class="form-label" style="margin-bottom: 0;">Opacity</label>
+                            <span id="sigOpacityValue" class="badge-rot">100%</span>
+                        </div>
+                        <input type="range" id="sigOpacitySlider" min="10" max="100" value="100" step="1" class="apple-slider" style="width: 100%;">
+                    </div>
+                    <div class="margin-top-sm" style="padding-top: 6px; border-top: 0.5px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; gap: 4px; align-items: center;">
+                            <span class="form-label" style="margin-bottom: 0; font-size: 0.75rem;">Layer:</span>
+                            <button id="sigZUpBtn" type="button" class="apple-btn secondary small" title="Bring Forward" style="padding: 2px 6px;">▲</button>
+                            <button id="sigZDownBtn" type="button" class="apple-btn secondary small" title="Send Backward" style="padding: 2px 6px;">▼</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

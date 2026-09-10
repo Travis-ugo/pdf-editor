@@ -180,6 +180,7 @@ class PDFStudioStore {
     }
 
     addSignatureToDoc(dataUrl, customProps = {}) {
+        this.recordStateSnapshot();
         const docPage = this.state.document.currentPage || 1;
         const existingCount = this.state.signature.activeSignaturesOnDoc.length;
         const offsetX = (existingCount % 6) * 35;
@@ -191,6 +192,10 @@ class PDFStudioStore {
         let initialW = customProps.width || this.state.placement.width || 150;
         let initialH = customProps.height || this.state.placement.height || 60;
 
+        const maxZ = existingCount > 0 
+            ? Math.max(...this.state.signature.activeSignaturesOnDoc.map(s => s.zIndex || 1)) + 1 
+            : 1;
+
         const newSigItem = {
             id: "sig_doc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
             dataUrl: dataUrl,
@@ -200,6 +205,11 @@ class PDFStudioStore {
             width: initialW,
             height: initialH,
             rotation: customProps.rotation || 0,
+            scaleX: customProps.scaleX || 1.0,
+            scaleY: customProps.scaleY || 1.0,
+            opacity: customProps.opacity !== undefined ? customProps.opacity : 1.0,
+            zIndex: customProps.zIndex || maxZ,
+            locked: !!customProps.locked,
             confirmed: false
         };
 
@@ -210,6 +220,8 @@ class PDFStudioStore {
             if (img.naturalWidth && img.naturalHeight) {
                 const ratio = img.naturalWidth / img.naturalHeight;
                 newSigItem.aspectRatio = ratio;
+                newSigItem.origWidth = img.naturalWidth;
+                newSigItem.origHeight = img.naturalHeight;
                 if (!customProps.width || !customProps.height) {
                     let w = 160;
                     let h = Math.round(w / ratio);
@@ -223,6 +235,8 @@ class PDFStudioStore {
                     }
                     newSigItem.width = w;
                     newSigItem.height = h;
+                    newSigItem.scaleX = w / img.naturalWidth;
+                    newSigItem.scaleY = h / img.naturalHeight;
                     this.state.placement.width = w;
                     this.state.placement.height = h;
                     this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
@@ -242,10 +256,15 @@ class PDFStudioStore {
     }
 
 
-    updateSignatureOnDoc(id, newProps) {
+    updateSignatureOnDoc(id, newProps, recordHistory = false) {
+        if (recordHistory) {
+            this.recordStateSnapshot();
+        }
         const sig = this.state.signature.activeSignaturesOnDoc.find(s => s.id === id);
         if (sig) {
             Object.assign(sig, newProps);
+            if (sig.origWidth && sig.width) sig.scaleX = sig.width / sig.origWidth;
+            if (sig.origHeight && sig.height) sig.scaleY = sig.height / sig.origHeight;
             // Sync placement if active
             this.state.placement.x = sig.x;
             this.state.placement.y = sig.y;
@@ -256,6 +275,7 @@ class PDFStudioStore {
     }
 
     confirmSignatureOnDoc(id) {
+        this.recordStateSnapshot();
         const sig = this.state.signature.activeSignaturesOnDoc.find(s => s.id === id);
         if (sig) {
             sig.confirmed = true;
@@ -265,6 +285,7 @@ class PDFStudioStore {
     }
 
     removeSignatureFromDoc(id) {
+        this.recordStateSnapshot();
         this.state.signature.activeSignaturesOnDoc = this.state.signature.activeSignaturesOnDoc.filter(s => s.id !== id);
         this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
     }
@@ -315,21 +336,28 @@ class PDFStudioStore {
         this.emit("signature:library_updated", this.state.signature.savedSignatures);
     }
 
-
-
-
-    // --- Placement & Undo/Redo Logic ---
-    setPlacement(newPos, recordHistory = true) {
-        const prevPos = { ...this.state.placement };
-        
-        if (recordHistory) {
-            this.state.history.undoStack.push(prevPos);
-            this.state.history.redoStack = []; // clear redo on new action
-            if (this.state.history.undoStack.length > 30) {
-                this.state.history.undoStack.shift();
-            }
+    // --- History Snapshots & Placement/Transform Undo/Redo Logic ---
+    recordStateSnapshot() {
+        const snapshot = {
+            placement: { ...this.state.placement },
+            activeSignaturesOnDoc: JSON.parse(JSON.stringify(this.state.signature.activeSignaturesOnDoc))
+        };
+        this.state.history.undoStack.push(snapshot);
+        this.state.history.redoStack = []; // clear redo on new action
+        if (this.state.history.undoStack.length > 30) {
+            this.state.history.undoStack.shift();
         }
+        this.emit("placement:updated", {
+            placement: this.state.placement,
+            canUndo: this.state.history.undoStack.length > 0,
+            canRedo: this.state.history.redoStack.length > 0
+        });
+    }
 
+    setPlacement(newPos, recordHistory = true) {
+        if (recordHistory) {
+            this.recordStateSnapshot();
+        }
         this.state.placement = { ...this.state.placement, ...newPos };
         this.emit("placement:updated", {
             placement: this.state.placement,
@@ -340,11 +368,17 @@ class PDFStudioStore {
 
     undoPlacement() {
         if (this.state.history.undoStack.length > 0) {
-            const currentPos = { ...this.state.placement };
-            const prevPos = this.state.history.undoStack.pop();
-            this.state.history.redoStack.push(currentPos);
+            const currentSnapshot = {
+                placement: { ...this.state.placement },
+                activeSignaturesOnDoc: JSON.parse(JSON.stringify(this.state.signature.activeSignaturesOnDoc))
+            };
+            const prevSnapshot = this.state.history.undoStack.pop();
+            this.state.history.redoStack.push(currentSnapshot);
 
-            this.state.placement = prevPos;
+            this.state.placement = prevSnapshot.placement;
+            this.state.signature.activeSignaturesOnDoc = prevSnapshot.activeSignaturesOnDoc;
+
+            this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
             this.emit("placement:updated", {
                 placement: this.state.placement,
                 canUndo: this.state.history.undoStack.length > 0,
@@ -355,11 +389,17 @@ class PDFStudioStore {
 
     redoPlacement() {
         if (this.state.history.redoStack.length > 0) {
-            const currentPos = { ...this.state.placement };
-            const nextPos = this.state.history.redoStack.pop();
-            this.state.history.undoStack.push(currentPos);
+            const currentSnapshot = {
+                placement: { ...this.state.placement },
+                activeSignaturesOnDoc: JSON.parse(JSON.stringify(this.state.signature.activeSignaturesOnDoc))
+            };
+            const nextSnapshot = this.state.history.redoStack.pop();
+            this.state.history.undoStack.push(currentSnapshot);
 
-            this.state.placement = nextPos;
+            this.state.placement = nextSnapshot.placement;
+            this.state.signature.activeSignaturesOnDoc = nextSnapshot.activeSignaturesOnDoc;
+
+            this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
             this.emit("placement:updated", {
                 placement: this.state.placement,
                 canUndo: this.state.history.undoStack.length > 0,

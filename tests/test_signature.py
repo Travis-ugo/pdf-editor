@@ -133,6 +133,20 @@ class TestSignatureFeature(unittest.TestCase):
         reader = PdfReader(self.output_pdf)
         self.assertEqual(len(reader.pages), 2)
 
+    def test_add_signature_with_opacity_and_zindex(self):
+        sigs = [
+            {"signature_img": self.sig_image, "pages_spec": "1", "x": 50, "y": 50, "width": 120, "height": 40, "opacity": 0.5, "z_index": 2},
+            {"signature_img": self.sig_image, "pages_spec": "1", "x": 70, "y": 70, "width": 120, "height": 40, "opacity": 0.8, "z_index": 1}
+        ]
+        add_signature_to_pdf(
+            self.input_pdf,
+            self.output_pdf,
+            signatures=sigs
+        )
+        self.assertTrue(os.path.exists(self.output_pdf))
+        reader = PdfReader(self.output_pdf)
+        self.assertEqual(len(reader.pages), 2)
+
 if __name__ == "__main__":
     unittest.main()
 
