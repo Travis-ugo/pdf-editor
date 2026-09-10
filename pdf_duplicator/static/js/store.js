@@ -177,11 +177,6 @@ class PDFStudioStore {
     setActiveSignature(dataUrl) {
         this.state.signature.activeDataUrl = dataUrl;
         this.emit("signature:active", dataUrl);
-
-        // Automatically add to document stage if document is loaded
-        if (this.state.document.fileId || this.state.document.fileObj) {
-            this.addSignatureToDoc(dataUrl);
-        }
     }
 
     addSignatureToDoc(dataUrl, customProps = {}) {
@@ -193,16 +188,53 @@ class PDFStudioStore {
         const baseX = customProps.x || this.state.placement.x || 50;
         const baseY = customProps.y || this.state.placement.y || 50;
 
+        let initialW = customProps.width || this.state.placement.width || 150;
+        let initialH = customProps.height || this.state.placement.height || 60;
+
         const newSigItem = {
             id: "sig_doc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
             dataUrl: dataUrl,
             page: docPage,
             x: baseX + (customProps.x ? 0 : offsetX),
             y: baseY + (customProps.y ? 0 : offsetY),
-            width: customProps.width || this.state.placement.width || 150,
-            height: customProps.height || this.state.placement.height || 60,
+            width: initialW,
+            height: initialH,
+            rotation: customProps.rotation || 0,
             confirmed: false
         };
+
+        // Determine proportional dimensions from image natural dimensions to prevent stretching
+        const img = new Image();
+        img.src = dataUrl;
+        const applyProportions = () => {
+            if (img.naturalWidth && img.naturalHeight) {
+                const ratio = img.naturalWidth / img.naturalHeight;
+                newSigItem.aspectRatio = ratio;
+                if (!customProps.width || !customProps.height) {
+                    let w = 160;
+                    let h = Math.round(w / ratio);
+                    if (h > 90) {
+                        h = 90;
+                        w = Math.round(h * ratio);
+                    }
+                    if (w > 260) {
+                        w = 260;
+                        h = Math.round(w / ratio);
+                    }
+                    newSigItem.width = w;
+                    newSigItem.height = h;
+                    this.state.placement.width = w;
+                    this.state.placement.height = h;
+                    this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
+                }
+            }
+        };
+
+        if (img.complete && img.naturalWidth) {
+            applyProportions();
+        } else {
+            img.onload = applyProportions;
+        }
 
         this.state.signature.activeSignaturesOnDoc.push(newSigItem);
         this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);

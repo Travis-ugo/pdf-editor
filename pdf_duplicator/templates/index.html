@@ -191,6 +191,18 @@
                             <input type="number" id="sigHInput" class="apple-input" value="60" step="5">
                         </div>
                     </div>
+                    <!-- Signature Rotation Controls -->
+                    <div class="form-group margin-top-sm" style="padding-top: 6px; border-top: 0.5px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <label class="form-label" style="margin-bottom: 0;">Rotation</label>
+                            <span id="sigRotValue" class="badge-rot">0°</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="range" id="sigRotSlider" min="-180" max="180" value="0" step="1" class="apple-slider" style="flex: 1;">
+                            <button id="sigRotResetBtn" type="button" class="apple-btn secondary small" title="Reset angle to 0°" style="padding: 3px 8px; font-size: 0.75rem;">0°</button>
+                            <button id="sigRot90Btn" type="button" class="apple-btn secondary small" title="Rotate +90° clockwise" style="padding: 3px 8px; font-size: 0.75rem;">+90°</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

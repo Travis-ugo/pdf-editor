@@ -208,7 +208,8 @@ def add_signature_to_pdf(
     height=50,
     password=None,
     y_from_top=False,
-    signatures=None
+    signatures=None,
+    rotation=0
 ):
     """
     Adds single or multiple signature image overlays to specified pages of a PDF document.
@@ -224,7 +225,8 @@ def add_signature_to_pdf(
     :param password: Password if PDF is encrypted
     :param y_from_top: Measure Y coordinate from top of page if True
     :param signatures: Optional list of signature dict items for multi-signature placement:
-                       [{ 'signature_img': ..., 'pages_spec': ..., 'x': ..., 'y': ..., 'width': ..., 'height': ..., 'y_from_top': ... }]
+                       [{ 'signature_img': ..., 'pages_spec': ..., 'x': ..., 'y': ..., 'width': ..., 'height': ..., 'rotation': ..., 'y_from_top': ... }]
+    :param rotation: Rotation angle in degrees clockwise (0 to 360)
     """
     import io
     from reportlab.pdfgen import canvas
@@ -254,6 +256,7 @@ def add_signature_to_pdf(
             "y": y,
             "width": width,
             "height": height,
+            "rotation": rotation,
             "y_from_top": y_from_top
         }]
 
@@ -268,6 +271,7 @@ def add_signature_to_pdf(
         if spec is None or spec == "":
             spec = pages_spec
         target_idxs = set(parse_page_range(spec, total_pages))
+        rot_val = float(sig_item.get("rotation", 0) or rotation or 0)
         processed_sigs.append({
             "img_obj": img_obj,
             "target_indices": target_idxs,
@@ -275,6 +279,7 @@ def add_signature_to_pdf(
             "y": float(sig_item.get("y", 50)),
             "width": float(sig_item.get("width", 150)),
             "height": float(sig_item.get("height", 50)),
+            "rotation": rot_val,
             "y_from_top": sig_item.get("y_from_top", True)
         })
 
@@ -291,7 +296,29 @@ def add_signature_to_pdf(
             can = canvas.Canvas(packet, pagesize=(page_width, page_height))
             for sig in matching_sigs:
                 pdf_y = page_height - sig["y"] - sig["height"] if sig["y_from_top"] else sig["y"]
-                can.drawImage(ImageReader(sig["img_obj"]), sig["x"], pdf_y, width=sig["width"], height=sig["height"], mask='auto')
+                rot = float(sig.get("rotation", 0) or 0) % 360
+                if rot != 0:
+                    center_x = sig["x"] + sig["width"] / 2.0
+                    center_y = pdf_y + sig["height"] / 2.0
+                    can.saveState()
+                    can.translate(center_x, center_y)
+                    can.rotate(-rot)
+                    can.translate(-center_x, -center_y)
+
+                can.drawImage(
+                    ImageReader(sig["img_obj"]),
+                    sig["x"],
+                    pdf_y,
+                    width=sig["width"],
+                    height=sig["height"],
+                    mask='auto',
+                    preserveAspectRatio=True,
+                    anchor='c'
+                )
+
+                if rot != 0:
+                    can.restoreState()
+
             can.save()
             packet.seek(0)
 

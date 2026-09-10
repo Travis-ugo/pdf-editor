@@ -44,14 +44,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 USER_DOWNLOADS_DIR = os.path.expanduser("~/Downloads")
 
 def save_to_user_downloads(src_path, filename):
-    """Copies output file directly to user Downloads directory if available."""
-    try:
-        if os.path.exists(USER_DOWNLOADS_DIR):
-            target_path = os.path.join(USER_DOWNLOADS_DIR, filename)
-            shutil.copyfile(src_path, target_path)
-            return target_path
-    except Exception as e:
-        print(f"Warning: Could not copy to Downloads: {e}")
+    """Returns the generated output path. File download is handled directly by browser."""
     return src_path
 
 def sanitize_output_filename(default_name, custom_name=None):

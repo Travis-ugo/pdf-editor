@@ -83,7 +83,8 @@ def duplicate_pgs(input_file, output_file, pages, count, password, repeat_sequen
 @click.option('--height', default=50.0, type=float, help='Height of signature.')
 @click.option('--password', '-p', default=None, help='Password for encrypted PDF files.')
 @click.option('--y-from-top', is_flag=True, help='Measure Y coordinate from top of page instead of bottom.')
-def add_sig(input_file, output_file, signature, pages, x, y, width, height, password, y_from_top):
+@click.option('--rotation', '-r', default=0.0, type=float, help='Rotation angle in degrees clockwise (0-360).')
+def add_sig(input_file, output_file, signature, pages, x, y, width, height, password, y_from_top, rotation):
     """
     Add a signature image overlay to a PDF file.
     """
@@ -114,7 +115,8 @@ def add_sig(input_file, output_file, signature, pages, x, y, width, height, pass
             width=width,
             height=height,
             password=password,
-            y_from_top=y_from_top
+            y_from_top=y_from_top,
+            rotation=rotation
         )
         click.secho("Success! Signature added to PDF successfully.", fg="green")
     except Exception as e:

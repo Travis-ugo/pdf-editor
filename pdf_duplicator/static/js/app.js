@@ -102,6 +102,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const sigWInput = document.getElementById("sigWInput");
     const sigHInput = document.getElementById("sigHInput");
 
+    const sigRotSlider = document.getElementById("sigRotSlider");
+    const sigRotValue = document.getElementById("sigRotValue");
+    const sigRotResetBtn = document.getElementById("sigRotResetBtn");
+    const sigRot90Btn = document.getElementById("sigRot90Btn");
+
     const undoBtn = document.getElementById("undoBtn");
     const redoBtn = document.getElementById("redoBtn");
 
@@ -815,12 +820,22 @@ document.addEventListener("DOMContentLoaded", () => {
             overlay.style.top = `${sig.y * scale}px`;
             overlay.style.width = `${sig.width * scale}px`;
             overlay.style.height = `${sig.height * scale}px`;
+            overlay.style.transform = `rotate(${sig.rotation || 0}deg)`;
+            overlay.style.transformOrigin = "center center";
 
             overlay.innerHTML = `
                 <div class="overlay-action-bar">
                     <button class="overlay-action-btn btn-confirm" title="Confirm & Lock Placement">✓</button>
+                    <button class="overlay-action-btn btn-rotate" title="Rotate 90° Clockwise">↻</button>
                     <button class="overlay-action-btn btn-remove" title="Remove Signature">✕</button>
                 </div>
+                <div class="rotate-stem"></div>
+                <div class="handle-rot" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)">⟳</div>
+                <div class="corner-rot-zone rot-nw" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-ne" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-sw" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-se" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)"></div>
+                <div class="rot-live-tooltip hidden">0°</div>
                 <div class="overlay-inner">
                     <img src="${sig.dataUrl}" alt="Signature">
                 </div>
@@ -832,11 +847,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Action Buttons
             const confirmBtn = overlay.querySelector(".btn-confirm");
+            const rotateBtn = overlay.querySelector(".btn-rotate");
             const removeBtn = overlay.querySelector(".btn-remove");
 
             confirmBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
                 store.confirmSignatureOnDoc(sig.id);
+            });
+
+            rotateBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                let nextRot = ((sig.rotation || 0) + 90) % 360;
+                if (nextRot > 180) nextRot -= 360;
+                store.updateSignatureOnDoc(sig.id, { rotation: nextRot });
+                syncRotationInputs(nextRot);
             });
 
             removeBtn.addEventListener("click", (e) => {
@@ -863,7 +887,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="sig-item-thumb">
                         <img src="${sig.dataUrl}" alt="Sig ${index + 1}">
                     </div>
-                    <span class="sig-item-title">Sig #${index + 1} (Pg ${sig.page})</span>
+                    <span class="sig-item-title">Sig #${index + 1} (Pg ${sig.page})${sig.rotation ? ` · ${sig.rotation}°` : ''}</span>
                 </div>
                 <div class="sig-item-actions">
                     <button class="overlay-action-btn btn-confirm small" title="Confirm Placement">${sig.confirmed ? '✓' : '✓'}</button>
@@ -877,6 +901,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 sigYInput.value = Math.round(sig.y);
                 sigWInput.value = Math.round(sig.width);
                 sigHInput.value = Math.round(sig.height);
+                syncRotationInputs(sig.rotation || 0);
                 renderStageSignatures();
             });
 
@@ -899,17 +924,40 @@ document.addEventListener("DOMContentLoaded", () => {
         updateSaveBtn();
     });
 
-    // Attach Drag & Resize to an Overlay Box
+    // Attach Drag, Resize & Rotate to an Overlay Box
     function attachOverlayDragAndResize(overlay, sig) {
         let isDragging = false;
         let isResizing = false;
+        let isRotating = false;
         let resizeHandle = null;
         let startX = 0, startY = 0;
         let initL = 0, initT = 0, initW = 0, initH = 0;
+        let initRot = 0, startAngle = 0;
+        let centerPt = { x: 0, y: 0 };
+        const liveTooltip = overlay.querySelector(".rot-live-tooltip");
 
         overlay.addEventListener("mousedown", (e) => {
             selectedSigId = sig.id;
-            if (e.target.classList.contains("resize-handle")) {
+            syncRotationInputs(sig.rotation || 0);
+
+            // Check if clicking rotation handle or corner rotation zone (Word style)
+            if (e.target.closest(".handle-rot") || e.target.closest(".corner-rot-zone") || e.target.dataset.handle === "rot") {
+                isRotating = true;
+                const rect = overlay.getBoundingClientRect();
+                centerPt = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                initRot = sig.rotation || 0;
+                startAngle = Math.atan2(e.clientY - centerPt.y, e.clientX - centerPt.x) * (180 / Math.PI);
+                if (liveTooltip) {
+                    liveTooltip.textContent = `${initRot}°`;
+                    liveTooltip.classList.remove("hidden");
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            } else if (e.target.classList.contains("resize-handle")) {
                 isResizing = true;
                 resizeHandle = e.target.dataset.handle;
             } else if (!e.target.classList.contains("overlay-action-btn")) {
@@ -929,12 +977,36 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         const onMouseMove = (e) => {
-            if (!isDragging && !isResizing) return;
+            if (!isDragging && !isResizing && !isRotating) return;
             const deltaX = e.clientX - startX;
             const deltaY = e.clientY - startY;
             const scale = getScaleFactor();
 
-            if (isDragging) {
+            if (isRotating) {
+                // Calculate dynamic, smooth 360-degree rotation relative to center
+                const currentAngle = Math.atan2(e.clientY - centerPt.y, e.clientX - centerPt.x) * (180 / Math.PI);
+                const delta = currentAngle - startAngle;
+                let deg = initRot + delta;
+
+                if (e.shiftKey) {
+                    // Hold Shift to snap to 15-degree steps like Microsoft Word
+                    deg = Math.round(deg / 15) * 15;
+                } else {
+                    // Dynamic smooth 1-degree rotation
+                    deg = Math.round(deg);
+                }
+
+                deg = (deg % 360 + 360) % 360;
+                if (deg > 180) deg -= 360;
+
+                sig.rotation = deg;
+                overlay.style.transform = `rotate(${deg}deg)`;
+                syncRotationInputs(deg);
+                if (liveTooltip) {
+                    liveTooltip.textContent = `${deg}°`;
+                    liveTooltip.classList.remove("hidden");
+                }
+            } else if (isDragging) {
                 let newL = Math.max(0, Math.min(initL + deltaX, pdfPageImg.clientWidth - overlay.offsetWidth));
                 let newT = Math.max(0, Math.min(initT + deltaY, pdfPageImg.clientHeight - overlay.offsetHeight));
                 overlay.style.left = `${newL}px`;
@@ -943,16 +1015,29 @@ document.addEventListener("DOMContentLoaded", () => {
                 sigXInput.value = Math.round(newL / scale);
                 sigYInput.value = Math.round(newT / scale);
             } else if (isResizing) {
+                const ratio = (sig.aspectRatio) || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
                 let newW = initW, newH = initH, newL = initL, newT = initT;
-                if (resizeHandle.includes("e")) newW = Math.max(30, initW + deltaX);
-                if (resizeHandle.includes("s")) newH = Math.max(15, initH + deltaY);
-                if (resizeHandle.includes("w")) {
-                    const calcW = initW - deltaX;
-                    if (calcW > 30) { newW = calcW; newL = initL + deltaX; }
-                }
-                if (resizeHandle.includes("n")) {
-                    const calcH = initH - deltaY;
-                    if (calcH > 15) { newH = calcH; newT = initT + deltaY; }
+
+                if (resizeHandle === "se") {
+                    const change = (Math.abs(deltaX) >= Math.abs(deltaY * ratio)) ? deltaX : (deltaY * ratio);
+                    newW = Math.max(35, initW + change);
+                    newH = Math.max(15, Math.round(newW / ratio));
+                } else if (resizeHandle === "sw") {
+                    const change = (Math.abs(-deltaX) >= Math.abs(deltaY * ratio)) ? -deltaX : (deltaY * ratio);
+                    newW = Math.max(35, initW + change);
+                    newH = Math.max(15, Math.round(newW / ratio));
+                    newL = initL + (initW - newW);
+                } else if (resizeHandle === "ne") {
+                    const change = (Math.abs(deltaX) >= Math.abs(-deltaY * ratio)) ? deltaX : (-deltaY * ratio);
+                    newW = Math.max(35, initW + change);
+                    newH = Math.max(15, Math.round(newW / ratio));
+                    newT = initT + (initH - newH);
+                } else if (resizeHandle === "nw") {
+                    const change = (Math.abs(-deltaX) >= Math.abs(-deltaY * ratio)) ? -deltaX : (-deltaY * ratio);
+                    newW = Math.max(35, initW + change);
+                    newH = Math.max(15, Math.round(newW / ratio));
+                    newL = initL + (initW - newW);
+                    newT = initT + (initH - newH);
                 }
 
                 overlay.style.left = `${newL}px`;
@@ -968,7 +1053,12 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         const onMouseUp = () => {
-            if (isDragging || isResizing) {
+            if (isRotating) {
+                store.updateSignatureOnDoc(sig.id, {
+                    rotation: sig.rotation || 0
+                });
+                if (liveTooltip) liveTooltip.classList.add("hidden");
+            } else if (isDragging || isResizing) {
                 const scale = getScaleFactor();
                 store.updateSignatureOnDoc(sig.id, {
                     x: Math.round((parseFloat(overlay.style.left) || 0) / scale),
@@ -979,6 +1069,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             isDragging = false;
             isResizing = false;
+            isRotating = false;
             resizeHandle = null;
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
@@ -989,17 +1080,91 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- Inputs & Undo/Redo ---
-    [sigXInput, sigYInput, sigWInput, sigHInput].forEach(input => {
-        input.addEventListener("change", () => {
+    function syncRotationInputs(deg) {
+        deg = Math.round(deg || 0);
+        if (sigRotSlider) sigRotSlider.value = deg;
+        if (sigRotValue) sigRotValue.textContent = `${deg}°`;
+    }
+
+    if (sigRotSlider) {
+        sigRotSlider.addEventListener("input", () => {
+            const val = parseInt(sigRotSlider.value) || 0;
+            if (sigRotValue) sigRotValue.textContent = `${val}°`;
             if (selectedSigId) {
-                store.updateSignatureOnDoc(selectedSigId, {
-                    x: parseFloat(sigXInput.value) || 50,
-                    y: parseFloat(sigYInput.value) || 50,
-                    width: parseFloat(sigWInput.value) || 150,
-                    height: parseFloat(sigHInput.value) || 60
-                });
+                store.updateSignatureOnDoc(selectedSigId, { rotation: val });
+                const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
+                if (ov) ov.style.transform = `rotate(${val}deg)`;
             }
         });
+    }
+
+    if (sigRotResetBtn) {
+        sigRotResetBtn.addEventListener("click", () => {
+            if (selectedSigId) {
+                store.updateSignatureOnDoc(selectedSigId, { rotation: 0 });
+                syncRotationInputs(0);
+                const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
+                if (ov) ov.style.transform = "rotate(0deg)";
+            }
+        });
+    }
+
+    if (sigRot90Btn) {
+        sigRot90Btn.addEventListener("click", () => {
+            if (selectedSigId) {
+                const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+                let nextRot = ((sig && sig.rotation ? sig.rotation : 0) + 90) % 360;
+                if (nextRot > 180) nextRot -= 360;
+                store.updateSignatureOnDoc(selectedSigId, { rotation: nextRot });
+                syncRotationInputs(nextRot);
+                const ov = pdfCanvasContainer.querySelector(`.signature-overlay[data-sig-id="${selectedSigId}"]`);
+                if (ov) ov.style.transform = `rotate(${nextRot}deg)`;
+            }
+        });
+    }
+
+    sigWInput.addEventListener("change", () => {
+        if (selectedSigId) {
+            const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+            const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
+            const newW = Math.max(20, parseFloat(sigWInput.value) || 150);
+            const newH = Math.max(10, Math.round(newW / ratio));
+            sigHInput.value = newH;
+            store.updateSignatureOnDoc(selectedSigId, {
+                width: newW,
+                height: newH
+            });
+        }
+    });
+
+    sigHInput.addEventListener("change", () => {
+        if (selectedSigId) {
+            const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+            const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
+            const newH = Math.max(10, parseFloat(sigHInput.value) || 60);
+            const newW = Math.max(20, Math.round(newH * ratio));
+            sigWInput.value = newW;
+            store.updateSignatureOnDoc(selectedSigId, {
+                width: newW,
+                height: newH
+            });
+        }
+    });
+
+    sigXInput.addEventListener("change", () => {
+        if (selectedSigId) {
+            store.updateSignatureOnDoc(selectedSigId, {
+                x: parseFloat(sigXInput.value) || 50
+            });
+        }
+    });
+
+    sigYInput.addEventListener("change", () => {
+        if (selectedSigId) {
+            store.updateSignatureOnDoc(selectedSigId, {
+                y: parseFloat(sigYInput.value) || 50
+            });
+        }
     });
 
     undoBtn.addEventListener("click", () => store.undoPlacement());
@@ -1132,6 +1297,62 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    function trimCanvas(canvas) {
+        if (!canvas) return null;
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width;
+        const h = canvas.height;
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const alpha = data[(y * w + x) * 4 + 3];
+                if (alpha > 10) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        if (maxX === -1) return null;
+
+        const pad = 8;
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(w, maxX + pad);
+        maxY = Math.min(h, maxY + pad);
+
+        const cropW = maxX - minX;
+        const cropH = maxY - minY;
+
+        const trimmedCanvas = document.createElement("canvas");
+        trimmedCanvas.width = cropW;
+        trimmedCanvas.height = cropH;
+        const trimmedCtx = trimmedCanvas.getContext("2d");
+        trimmedCtx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+        return trimmedCanvas.toDataURL("image/png");
+    }
+
+    function trimImagePadding(img) {
+        try {
+            if (!img || !img.naturalWidth || !img.naturalHeight) return img ? img.src : null;
+            const tempCanvas = document.createElement("canvas");
+            tempCanvas.width = img.naturalWidth;
+            tempCanvas.height = img.naturalHeight;
+            const ctx = tempCanvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            const trimmed = trimCanvas(tempCanvas);
+            return trimmed || img.src;
+        } catch (e) {
+            return img.src;
+        }
+    }
+
     function initCanvas() {
         if (!canvasCtx) return;
         canvasCtx.lineCap = "round";
@@ -1201,9 +1422,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.files && e.target.files[0]) {
             const reader = new FileReader();
             reader.onload = (evt) => {
-                uploadedSigImg.src = evt.target.result;
-                uploadedSigPreview.classList.remove("hidden");
-                store.setActiveSignature(evt.target.result);
+                const img = new Image();
+                img.onload = () => {
+                    const trimmedDataUrl = trimImagePadding(img);
+                    uploadedSigImg.src = trimmedDataUrl;
+                    uploadedSigPreview.classList.remove("hidden");
+                    store.setActiveSignature(trimmedDataUrl);
+                };
+                img.src = evt.target.result;
             };
             reader.readAsDataURL(e.target.files[0]);
         }
@@ -1215,7 +1441,7 @@ document.addEventListener("DOMContentLoaded", () => {
             let sigData = store.state.signature.activeDataUrl;
 
             if (activeTab === "draw" && canvasCtx) {
-                sigData = sigCanvas.toDataURL("image/png");
+                sigData = trimCanvas(sigCanvas) || sigCanvas.toDataURL("image/png");
                 await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
                 canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
             } else if (activeTab === "upload" && sigData) {
@@ -1240,7 +1466,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let sigData = store.state.signature.activeDataUrl;
 
         if (activeTab === "draw" && canvasCtx) {
-            sigData = sigCanvas.toDataURL("image/png");
+            sigData = trimCanvas(sigCanvas) || sigCanvas.toDataURL("image/png");
             await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
         } else if (activeTab === "upload" && sigData) {
             await store.saveSignatureToLibrary(sigData, "Uploaded Signature");
@@ -1309,6 +1535,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 y: Number(s.y) || 50,
                 width: Number(s.width) || 150,
                 height: Number(s.height) || 60,
+                rotation: Number(s.rotation) || 0,
                 y_from_top: true
             }));
 
@@ -1392,11 +1619,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div>
                     <strong>✅ PDF Saved Successfully!</strong><br>
                     <a href="${directLink}" download="${fileName}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600; display: inline-block; margin-top: 6px;">
-                        📥 Click here to Download / Open PDF
+                        📥 Downloaded ${fileName} (Click here to open or re-download)
                     </a>
-                    ${filePathHeader ? `<br><small style="color: var(--text-secondary); display: inline-block; margin-top: 4px;">Saved to Downloads folder:<br><code>${filePathHeader}</code></small>` : ''}
                 </div>
             `;
+            showStatus(successHtml, "success", true);
             setTimeout(() => {
                 a.remove();
             }, 1000);
@@ -1562,6 +1789,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     y: s.y,
                     width: s.width,
                     height: s.height,
+                    rotation: Number(s.rotation) || 0,
                     y_from_top: true
                 }));
                 formData.append("signatures_json", JSON.stringify(sigsPayload));

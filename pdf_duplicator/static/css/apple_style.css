@@ -926,10 +926,10 @@ body {
     box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.35);
 }
 
-/* Overlay Action Bar (Checkmark ✓ & Remove ✕ Buttons) */
+/* Overlay Action Bar (Checkmark ✓, Rotate & Remove ✕ Buttons) */
 .overlay-action-bar {
     position: absolute;
-    top: -32px;
+    bottom: -36px;
     right: 0;
     display: flex;
     gap: 4px;
@@ -976,6 +976,16 @@ body {
 
 .overlay-action-btn.btn-remove:hover {
     background: rgba(255, 59, 48, 0.2);
+}
+
+.overlay-action-btn.btn-rotate {
+    background: var(--bg-card);
+    color: var(--apple-blue);
+    border: 0.5px solid var(--border-color);
+}
+
+.overlay-action-btn.btn-rotate:hover {
+    background: rgba(0, 122, 255, 0.2);
 }
 
 /* Multi Signature Sidebar List */
@@ -1105,6 +1115,159 @@ body {
     bottom: -6px;
     right: -6px;
     cursor: nwse-resize;
+}
+
+/* Rotation Stem & Handle (Microsoft Word Style) */
+.rotate-stem {
+    position: absolute;
+    top: -24px;
+    left: 50%;
+    width: 1.5px;
+    height: 24px;
+    background: var(--apple-blue);
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.handle-rot {
+    position: absolute;
+    top: -38px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 24px;
+    background: var(--bg-card-solid);
+    border: 1.5px solid var(--apple-blue);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--apple-blue);
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
+    z-index: 25;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    user-select: none;
+    transition: transform 0.15s, background-color 0.15s;
+}
+
+.handle-rot:hover {
+    background: var(--apple-blue);
+    color: white;
+    transform: translateX(-50%) scale(1.15);
+}
+
+.handle-rot:active {
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
+}
+
+/* Microsoft Word Style Corner Rotation Hover Zones */
+.corner-rot-zone {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    z-index: 18;
+    pointer-events: auto;
+    opacity: 0;
+    transition: opacity 0.15s, transform 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
+}
+
+.signature-overlay:hover .corner-rot-zone,
+.corner-rot-zone:hover {
+    opacity: 1;
+}
+
+.rot-nw {
+    top: -18px;
+    left: -18px;
+}
+.rot-ne {
+    top: -18px;
+    right: -18px;
+}
+.rot-sw {
+    bottom: -18px;
+    left: -18px;
+}
+.rot-se {
+    bottom: -18px;
+    right: -18px;
+}
+
+.corner-rot-zone::after {
+    content: "⟳";
+    font-size: 11px;
+    font-weight: 900;
+    color: var(--apple-blue);
+    background: var(--bg-card-solid);
+    border: 1px solid var(--apple-blue);
+    border-radius: 50%;
+    width: 15px;
+    height: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
+.rot-live-tooltip {
+    position: absolute;
+    top: -65px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 15, 0.88);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 12px;
+    border: 0.5px solid rgba(255, 255, 255, 0.2);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 50;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.badge-rot {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--bg-glass);
+    border: 0.5px solid var(--border-color);
+    color: var(--apple-blue);
+}
+
+.apple-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-color);
+    outline: none;
+    transition: background 0.2s;
+}
+
+.apple-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--apple-blue);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: transform 0.1s;
+}
+
+.apple-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
 }
 
 /* Thumbnail Ribbon */
