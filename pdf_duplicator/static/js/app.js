@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Cards
     const documentUploadCard = document.getElementById("documentUploadCard");
     const signControlsCard = document.getElementById("signControlsCard");
+    const textControlsCard = document.getElementById("textControlsCard");
     const mergeControlsCard = document.getElementById("mergeControlsCard");
     const duplicateControlsCard = document.getElementById("duplicateControlsCard");
     const cloneControlsCard = document.getElementById("cloneControlsCard");
@@ -88,7 +89,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Multi-Signature Controls
     const openSigStudioBtn = document.getElementById("openSigStudioBtn");
-    const addAnotherSigBtn = document.getElementById("addAnotherSigBtn");
     const multiSigListCard = document.getElementById("multiSigListCard");
     const sigCountNum = document.getElementById("sigCountNum");
     const placedSignaturesContainer = document.getElementById("placedSignaturesContainer");
@@ -142,6 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let isDrawing = false;
     let activeColor = "#000000";
     let strokeWidth = 3;
+    let canvasScale = 1; // backing-buffer px per CSS px for sigCanvas; keeps drawn strokes sharp on HiDPI screens
 
     // --- PWA Installation Event Listener ---
     let deferredInstallPrompt = null;
@@ -189,6 +190,7 @@ document.addEventListener("DOMContentLoaded", () => {
     store.subscribe("mode:changed", (mode) => {
         segmentedButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
         signControlsCard.classList.add("hidden");
+        if (textControlsCard) textControlsCard.classList.add("hidden");
         if (mergeControlsCard) mergeControlsCard.classList.add("hidden");
         duplicateControlsCard.classList.add("hidden");
         cloneControlsCard.classList.add("hidden");
@@ -197,6 +199,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (mode === "sign") {
             signControlsCard.classList.remove("hidden");
+            if (textControlsCard) textControlsCard.classList.remove("hidden");
             actionBtnText.textContent = "Save";
             renderStageSignatures();
         } else if (mode === "merge") {
@@ -240,10 +243,17 @@ document.addEventListener("DOMContentLoaded", () => {
     removeDocBtn.addEventListener("click", () => store.resetDocument());
 
     pdfPasswordInput.addEventListener("change", () => {
-        if (store.state.document.fileObj) {
-            handleFileUpload(store.state.document.fileObj);
+        const file = store.state.document.fileObj || pendingUploadFile;
+        if (file) {
+            handleFileUpload(file);
         }
     });
+
+    // Holds the raw File across an "enter password" retry. store.setDocument() (which is what
+    // normally remembers the file as document.fileObj) is never called for an encrypted PDF until
+    // the password succeeds, so without this the retry request had no file to resend and typing
+    // the correct password silently did nothing.
+    let pendingUploadFile = null;
 
     function handleFileUpload(file) {
         showStatus(null);
@@ -262,10 +272,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if (data.error) {
                 if (data.is_encrypted) {
                     passwordSection.classList.remove("hidden");
+                    pendingUploadFile = file;
                 }
                 showStatus(data.error, "error");
                 return;
             }
+            pendingUploadFile = null;
 
             store.setDocument({
                 fileId: data.file_id,
@@ -523,6 +535,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     store.subscribe("document:reset", () => {
+        pendingUploadFile = null;
         pdfFileInput.value = "";
         pdfPasswordInput.value = "";
         docInfoCard.classList.add("hidden");
@@ -580,6 +593,12 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // CSS px (pre-stage-zoom) per PDF point. Overlay elements are positioned in this space via
+    // plain `left`/`top`/`width`/`height`, and the stage's zoom transform (see setStageZoom) then
+    // scales that whole layer for display along with everything else in it — so this must stay
+    // based on `clientWidth`, which (unlike getBoundingClientRect) ignores CSS transforms.
+    // For converting a real on-screen point (a mouse event's clientX/clientY) into PDF-point
+    // space, use screenToDocument() instead, which accounts for the current zoom.
     function getScaleFactor() {
         const doc = store.state.document;
         if (!doc.pageDimensions.length || !pdfPageImg.clientWidth) return 1.0;
@@ -737,15 +756,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const sigUrl = e.dataTransfer.getData("text/plain") || draggedSigUrl;
             if (!sigUrl) return;
 
-            const rect = pdfPageImg.getBoundingClientRect();
-            const dropX = e.clientX - rect.left;
-            const dropY = e.clientY - rect.top;
-            const scale = getScaleFactor();
-
+            const dropPos = screenToDocument(e.clientX, e.clientY);
             const sigW = store.state.placement.width || 150;
             const sigH = store.state.placement.height || 60;
-            const pdfX = Math.max(0, Math.round((dropX / scale) - (sigW / 2)));
-            const pdfY = Math.max(0, Math.round((dropY / scale) - (sigH / 2)));
+            const pdfX = Math.max(0, Math.round(dropPos.x - sigW / 2));
+            const pdfY = Math.max(0, Math.round(dropPos.y - sigH / 2));
 
             store.addSignatureToDoc(sigUrl, {
                 page: store.state.document.currentPage,
@@ -763,15 +778,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!isStampModeActive || !store.state.signature.activeDataUrl) return;
             if (e.target.closest(".signature-overlay")) return;
 
-            const rect = pdfPageImg.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const clickY = e.clientY - rect.top;
-            const scale = getScaleFactor();
-
+            const clickPos = screenToDocument(e.clientX, e.clientY);
             const sigW = store.state.placement.width || 150;
             const sigH = store.state.placement.height || 60;
-            const pdfX = Math.max(0, Math.round((clickX / scale) - (sigW / 2)));
-            const pdfY = Math.max(0, Math.round((clickY / scale) - (sigH / 2)));
+            const pdfX = Math.max(0, Math.round(clickPos.x - sigW / 2));
+            const pdfY = Math.max(0, Math.round(clickPos.y - sigH / 2));
 
             store.addSignatureToDoc(store.state.signature.activeDataUrl, {
                 page: store.state.document.currentPage,
@@ -790,9 +801,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // --- Coordinate System Transformations ---
+    // Converts a viewport point (a mouse/drop event's clientX/clientY) into PDF-point space on the
+    // current page. This must derive its scale from the SAME (post-zoom) rect it reads the offset
+    // from: getBoundingClientRect() reflects the stage's current CSS zoom, but getScaleFactor()
+    // deliberately does not (see its comment), so mixing the two here used to send drops, clicks
+    // and drags to the wrong spot on the page at any zoom level other than 100%.
     function screenToDocument(clientX, clientY) {
-        const rect = pdfCanvasContainer.getBoundingClientRect();
-        const scale = getScaleFactor();
+        const doc = store.state.document;
+        const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+        const rect = pdfPageImg.getBoundingClientRect();
+        const scale = (pageDim && rect.width) ? rect.width / pageDim.width : getScaleFactor();
         return {
             x: (clientX - rect.left) / scale,
             y: (clientY - rect.top) / scale
@@ -843,7 +861,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (sig.page !== doc.currentPage && signPagesMode.value !== "all") return;
 
             const overlay = document.createElement("div");
-            overlay.className = `signature-overlay ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
+            const isText = sig.type === "text";
+            overlay.className = `signature-overlay ${isText ? 'text-overlay' : ''} ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
             overlay.dataset.sigId = sig.id;
             overlay.style.left = `${sig.x * scale}px`;
             overlay.style.top = `${sig.y * scale}px`;
@@ -855,17 +874,17 @@ document.addEventListener("DOMContentLoaded", () => {
             overlay.style.zIndex = sig.zIndex || 1;
 
             overlay.innerHTML = `
-                <div class="overlay-action-bar">
-                    <button class="overlay-action-btn btn-confirm" title="Confirm Placement">✓</button>
-                    <button class="overlay-action-btn btn-rotate" title="Rotate 90° Clockwise">↻</button>
-                    <button class="overlay-action-btn btn-remove" title="Remove Signature">✕</button>
-                </div>
-                <div class="rotate-stem"></div>
-                <div class="handle-rot" data-handle="rot" title="Click & drag to rotate (Hold Shift to snap)">⟳</div>
                 <div class="rot-live-tooltip hidden">0°</div>
                 <div class="overlay-inner">
-                    <img src="${sig.dataUrl}" alt="Signature">
+                    ${isText ? buildTextSvg(sig) : `<img src="${sig.dataUrl}" alt="Signature">`}
                 </div>
+                <!-- Word-style corner rotation: hovering just outside a corner handle (not on it)
+                     swaps to a rotate cursor/icon; the handle itself still scales. No handle is
+                     shown until hovered -- see attachOverlayDragAndResize() for the drag logic. -->
+                <div class="corner-rot-zone rot-nw" data-handle="rot" title="Drag to rotate (hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-ne" data-handle="rot" title="Drag to rotate (hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-sw" data-handle="rot" title="Drag to rotate (hold Shift to snap)"></div>
+                <div class="corner-rot-zone rot-se" data-handle="rot" title="Drag to rotate (hold Shift to snap)"></div>
                 <div class="resize-handle handle-nw" data-handle="nw"></div>
                 <div class="resize-handle handle-n" data-handle="n"></div>
                 <div class="resize-handle handle-ne" data-handle="ne"></div>
@@ -876,27 +895,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="resize-handle handle-se" data-handle="se"></div>
             `;
 
-            // Action Buttons
-            const confirmBtn = overlay.querySelector(".btn-confirm");
-            const rotateBtn = overlay.querySelector(".btn-rotate");
-            const removeBtn = overlay.querySelector(".btn-remove");
+            if (isText) {
+                overlay.addEventListener("dblclick", () => focusTextEditor());
+            }
 
-            confirmBtn.addEventListener("click", (e) => {
+            overlay.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                store.confirmSignatureOnDoc(sig.id);
-            });
-
-            rotateBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                let nextRot = ((sig.rotation || 0) + 90) % 360;
-                if (nextRot > 180) nextRot -= 360;
-                store.updateSignatureOnDoc(sig.id, { rotation: nextRot }, true);
+                selectedSigId = sig.id;
                 syncInspectorInputs(sig);
-            });
-
-            removeBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                store.removeSignatureFromDoc(sig.id);
+                renderStageSignatures();
+                openItemContextMenu(sig.id, e.clientX, e.clientY);
             });
 
             attachOverlayDragAndResize(overlay, sig);
@@ -914,10 +923,10 @@ document.addEventListener("DOMContentLoaded", () => {
             item.className = `sig-item-row ${selectedSigId === sig.id ? 'active' : ''}`;
             item.innerHTML = `
                 <div class="sig-item-left">
-                    <div class="sig-item-thumb">
-                        <img src="${sig.dataUrl}" alt="Sig ${index + 1}">
-                    </div>
-                    <span class="sig-item-title">Sig #${index + 1} (Pg ${sig.page})${sig.rotation ? ` · ${sig.rotation}°` : ''}</span>
+                    ${sig.type === "text"
+                        ? `<div class="sig-item-thumb text-thumb">T</div>`
+                        : `<div class="sig-item-thumb"><img src="${sig.dataUrl}" alt="Sig ${index + 1}"></div>`}
+                    <span class="sig-item-title">${sig.type === "text" ? escapeHtml(textItemLabel(sig)) : `Sig #${index + 1}`} (Pg ${sig.page})${sig.rotation ? ` · ${sig.rotation}°` : ''}</span>
                 </div>
                 <div class="sig-item-actions">
                     <button class="overlay-action-btn btn-confirm small" title="Confirm Placement">${sig.confirmed ? '✓' : '✓'}</button>
@@ -945,8 +954,123 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // --- Right-Click Item Menu & Keyboard Actions for Placed Items ---
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const modKey = isMac ? "⌘" : "Ctrl+";
+    let itemContextMenu = null;
+
+    function rotateItem90(id) {
+        const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === id);
+        if (!sig) return;
+        let nextRot = ((sig.rotation || 0) + 90) % 360;
+        if (nextRot > 180) nextRot -= 360;
+        store.updateSignatureOnDoc(id, { rotation: nextRot }, true);
+        syncInspectorInputs(sig);
+    }
+
+    function deleteItem(id) {
+        if (selectedSigId === id) selectedSigId = null;
+        store.removeSignatureFromDoc(id);
+    }
+
+    function duplicateItem(id) {
+        const copy = store.duplicateSignatureOnDoc(id);
+        if (copy) {
+            selectedSigId = copy.id;
+            syncInspectorInputs(copy);
+            renderStageSignatures();
+        }
+    }
+
+    function closeItemContextMenu() {
+        if (itemContextMenu) {
+            itemContextMenu.remove();
+            itemContextMenu = null;
+        }
+    }
+
+    function openItemContextMenu(id, clientX, clientY) {
+        closeItemContextMenu();
+        const actions = [
+            { label: "Duplicate", shortcut: `${modKey}D`, run: () => duplicateItem(id) },
+            { label: "Rotate 90°", shortcut: "", run: () => rotateItem90(id) },
+            { divider: true },
+            { label: "Bring to Front", shortcut: `${modKey}]`, run: () => store.reorderSignatureOnDoc(id, "front") },
+            { label: "Send to Back", shortcut: `${modKey}[`, run: () => store.reorderSignatureOnDoc(id, "back") },
+            { divider: true },
+            { label: "Delete", shortcut: isMac ? "⌫" : "Del", danger: true, run: () => deleteItem(id) }
+        ];
+
+        const menu = document.createElement("div");
+        menu.className = "item-context-menu";
+        menu.setAttribute("role", "menu");
+        actions.forEach(a => {
+            if (a.divider) {
+                menu.insertAdjacentHTML("beforeend", `<div class="ctx-divider"></div>`);
+                return;
+            }
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = `ctx-item ${a.danger ? "danger" : ""}`;
+            btn.setAttribute("role", "menuitem");
+            btn.innerHTML = `<span>${a.label}</span><span class="ctx-shortcut">${a.shortcut}</span>`;
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                closeItemContextMenu();
+                a.run();
+            });
+            menu.appendChild(btn);
+        });
+        // Keep clicks inside the menu from reaching the stage (pan/deselect) handlers.
+        menu.addEventListener("mousedown", (e) => e.stopPropagation());
+        menu.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        document.body.appendChild(menu);
+        // Keep the menu fully on screen.
+        const { width, height } = menu.getBoundingClientRect();
+        const left = Math.min(clientX, window.innerWidth - width - 8);
+        const top = Math.min(clientY, window.innerHeight - height - 8);
+        menu.style.left = `${Math.max(8, left)}px`;
+        menu.style.top = `${Math.max(8, top)}px`;
+        itemContextMenu = menu;
+    }
+
+    window.addEventListener("mousedown", (e) => {
+        if (itemContextMenu && !itemContextMenu.contains(e.target)) closeItemContextMenu();
+    });
+    window.addEventListener("blur", closeItemContextMenu);
+    window.addEventListener("resize", closeItemContextMenu);
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && itemContextMenu) {
+            closeItemContextMenu();
+            return;
+        }
+        const el = document.activeElement;
+        if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return;
+        if (!selectedSigId || store.state.currentMode !== "sign") return;
+        if (!store.state.signature.activeSignaturesOnDoc.some(s => s.id === selectedSigId)) return;
+
+        const mod = e.metaKey || e.ctrlKey;
+        if (e.key === "Delete" || e.key === "Backspace") {
+            e.preventDefault();
+            closeItemContextMenu();
+            deleteItem(selectedSigId);
+        } else if (mod && e.key.toLowerCase() === "d") {
+            e.preventDefault();
+            duplicateItem(selectedSigId);
+        } else if (mod && e.key === "]") {
+            e.preventDefault();
+            store.reorderSignatureOnDoc(selectedSigId, "front");
+        } else if (mod && e.key === "[") {
+            e.preventDefault();
+            store.reorderSignatureOnDoc(selectedSigId, "back");
+        }
+    });
+
     store.subscribe("signatures:doc_updated", () => {
         renderStageSignatures();
+        syncTextEditor();
         updateSaveBtn();
     });
 
@@ -959,6 +1083,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let initX = 0, initY = 0, initW = 0, initH = 0;
         let initRot = 0, startAngle = 0;
+        let initFontSize = 0;
         let initCenter = { x: 0, y: 0 };
         let centerScreen = { x: 0, y: 0 };
         let startPointerDoc = { x: 0, y: 0 };
@@ -969,9 +1094,10 @@ document.addEventListener("DOMContentLoaded", () => {
             selectedSigId = sig.id;
             syncInspectorInputs(sig);
 
-            if (e.target.closest(".overlay-action-btn")) return;
+            // Only a primary-button press moves/resizes/rotates; right-click opens the item menu
+            // and middle-click falls through to the stage's pan handler.
+            if (e.button !== 0) return;
 
-            const scale = getScaleFactor();
             startPointerDoc = screenToDocument(e.clientX, e.clientY);
 
             initX = sig.x;
@@ -979,9 +1105,10 @@ document.addEventListener("DOMContentLoaded", () => {
             initW = sig.width;
             initH = sig.height;
             initRot = sig.rotation || 0;
+            initFontSize = sig.fontSize || 0;
             initCenter = { x: initX + initW / 2, y: initY + initH / 2 };
 
-            if (e.target.closest(".handle-rot") || e.target.dataset.handle === "rot") {
+            if (e.target.closest(".corner-rot-zone") || e.target.dataset.handle === "rot") {
                 isRotating = true;
                 const rect = overlay.getBoundingClientRect();
                 centerScreen = {
@@ -1049,6 +1176,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const rotRad = (initRot * Math.PI) / 180;
                 const localPointer = documentToLocal(currPointerDoc.x, currPointerDoc.y, initCenter, rotRad);
                 const ratio = sig.aspectRatio || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
+                // Small text boxes are legitimately narrower than a signature would ever be
+                const minW = sig.type === "text" ? 6 : 20;
+                const minH = sig.type === "text" ? 4 : 10;
 
                 const L = -initW / 2;
                 const R = initW / 2;
@@ -1060,29 +1190,29 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (resizeHandle === "se") {
                     newR = localPointer.x;
                     newB = localPointer.y;
-                    let newW = Math.max(20, newR - L);
-                    let newH = Math.max(10, Math.round(newW / ratio));
+                    let newW = Math.max(minW, newR - L);
+                    let newH = Math.max(minH, Math.round(newW / ratio));
                     newR = L + newW;
                     newB = T + newH;
                 } else if (resizeHandle === "nw") {
                     newL = localPointer.x;
                     newT = localPointer.y;
-                    let newW = Math.max(20, R - newL);
-                    let newH = Math.max(10, Math.round(newW / ratio));
+                    let newW = Math.max(minW, R - newL);
+                    let newH = Math.max(minH, Math.round(newW / ratio));
                     newL = R - newW;
                     newT = B - newH;
                 } else if (resizeHandle === "ne") {
                     newR = localPointer.x;
                     newT = localPointer.y;
-                    let newW = Math.max(20, newR - L);
-                    let newH = Math.max(10, Math.round(newW / ratio));
+                    let newW = Math.max(minW, newR - L);
+                    let newH = Math.max(minH, Math.round(newW / ratio));
                     newR = L + newW;
                     newT = B - newH;
                 } else if (resizeHandle === "sw") {
                     newL = localPointer.x;
                     newB = localPointer.y;
-                    let newW = Math.max(20, R - newL);
-                    let newH = Math.max(10, Math.round(newW / ratio));
+                    let newW = Math.max(minW, R - newL);
+                    let newH = Math.max(minH, Math.round(newW / ratio));
                     newL = R - newW;
                     newT = B - newH;
                 } else if (resizeHandle === "n") {
@@ -1113,6 +1243,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 sig.width = finalW;
                 sig.height = finalH;
 
+                if (sig.type === "text" && initW > 0) {
+                    // The SVG scales with the box for a live preview; the font size is committed on mouseup
+                    sig.fontSize = initFontSize * finalW / initW;
+                }
+
                 if (sigXInput) sigXInput.value = finalX;
                 if (sigYInput) sigYInput.value = finalY;
                 if (sigWInput) sigWInput.value = finalW;
@@ -1122,13 +1257,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const onMouseUp = () => {
             if (isRotating || isDragging || isResizing) {
-                store.updateSignatureOnDoc(sig.id, {
-                    x: sig.x,
-                    y: sig.y,
-                    width: sig.width,
-                    height: sig.height,
-                    rotation: sig.rotation || 0
-                }, true);
+                if (sig.type === "text" && isResizing) {
+                    // Snap to a clean font size and re-fit the box to the text
+                    const fontSize = normalizeFontSize(sig.fontSize);
+                    store.updateSignatureOnDoc(sig.id, {
+                        x: sig.x,
+                        y: sig.y,
+                        rotation: sig.rotation || 0,
+                        fontSize,
+                        ...measureTextBox({ ...sig, fontSize })
+                    }, true);
+                } else {
+                    store.updateSignatureOnDoc(sig.id, {
+                        x: sig.x,
+                        y: sig.y,
+                        width: sig.width,
+                        height: sig.height,
+                        rotation: sig.rotation || 0
+                    }, true);
+                }
                 if (liveTooltip) liveTooltip.classList.add("hidden");
             }
             isDragging = false;
@@ -1158,6 +1305,7 @@ document.addEventListener("DOMContentLoaded", () => {
         syncRotationInputs(sig.rotation || 0);
         if (sigOpacitySlider) sigOpacitySlider.value = Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100);
         if (sigOpacityValue) sigOpacityValue.textContent = `${Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100)}%`;
+        syncTextEditor();
     }
 
     function syncRotationInputs(deg) {
@@ -1240,6 +1388,10 @@ document.addEventListener("DOMContentLoaded", () => {
     sigWInput.addEventListener("change", () => {
         if (selectedSigId) {
             const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+            if (sig && sig.type === "text") {
+                scaleTextItem(sig, (parseFloat(sigWInput.value) || sig.width) / sig.width);
+                return;
+            }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
             const newW = Math.max(20, parseFloat(sigWInput.value) || 150);
             const newH = Math.max(10, Math.round(newW / ratio));
@@ -1254,6 +1406,10 @@ document.addEventListener("DOMContentLoaded", () => {
     sigHInput.addEventListener("change", () => {
         if (selectedSigId) {
             const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+            if (sig && sig.type === "text") {
+                scaleTextItem(sig, (parseFloat(sigHInput.value) || sig.height) / sig.height);
+                return;
+            }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
             const newH = Math.max(10, parseFloat(sigHInput.value) || 60);
             const newW = Math.max(20, Math.round(newH * ratio));
@@ -1284,12 +1440,25 @@ document.addEventListener("DOMContentLoaded", () => {
     undoBtn.addEventListener("click", () => store.undoPlacement());
     redoBtn.addEventListener("click", () => store.redoPlacement());
 
-    if (addAnotherSigBtn) {
-        addAnotherSigBtn.addEventListener("click", () => {
-            sigStudioModal.classList.remove("hidden");
-            initCanvas();
-        });
-    }
+    // The buttons start disabled in the HTML and nothing was ever re-enabling them, so Undo/Redo
+    // were unreachable from the UI even though the underlying history stack worked correctly.
+    store.subscribe("placement:updated", ({ canUndo, canRedo }) => {
+        undoBtn.disabled = !canUndo;
+        redoBtn.disabled = !canRedo;
+    });
+
+    // Keyboard shortcuts to match what the buttons' titles already advertise (⌘Z / ⌘⇧Z on Mac,
+    // Ctrl+Z / Ctrl+Shift+Z elsewhere), which previously didn't exist.
+    window.addEventListener("keydown", (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+            if (!redoBtn.disabled) store.redoPlacement();
+        } else if (!undoBtn.disabled) {
+            store.undoPlacement();
+        }
+    });
 
     // Steppers
     stepperMinusBtn.addEventListener("click", () => {
@@ -1469,10 +1638,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function initCanvas() {
         if (!canvasCtx) return;
+
+        // The canvas element is sized in CSS (width: 100%, height: 220px), but its backing pixel
+        // buffer defaults to the fixed 560x220 from its HTML attributes. On a HiDPI/Retina screen,
+        // or whenever the modal renders wider than 560px, that buffer gets upscaled to fill the
+        // element and the drawn signature comes out soft/pixelated. Resizing the buffer to match
+        // the actual on-screen size * devicePixelRatio fixes that at the source, so what's captured
+        // (and later embedded in the PDF) is as sharp as the screen it was drawn on.
+        // Resizing the buffer clears it, so only do it when the size actually changed.
+        const dpr = window.devicePixelRatio || 1;
+        const rect = sigCanvas.getBoundingClientRect();
+        const targetW = Math.max(1, Math.round((rect.width || sigCanvas.clientWidth || 560) * dpr));
+        const targetH = Math.max(1, Math.round((rect.height || 220) * dpr));
+        if (sigCanvas.width !== targetW || sigCanvas.height !== targetH) {
+            sigCanvas.width = targetW;
+            sigCanvas.height = targetH;
+        }
+        canvasScale = sigCanvas.width / (rect.width || sigCanvas.clientWidth || 560);
+
         canvasCtx.lineCap = "round";
         canvasCtx.lineJoin = "round";
         canvasCtx.strokeStyle = activeColor;
-        canvasCtx.lineWidth = strokeWidth;
+        canvasCtx.lineWidth = strokeWidth * canvasScale;
     }
 
     if (sigCanvas) {
@@ -1528,7 +1715,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     strokeWidthInput.addEventListener("input", () => {
         strokeWidth = parseInt(strokeWidthInput.value);
-        if (canvasCtx) canvasCtx.lineWidth = strokeWidth;
+        if (canvasCtx) canvasCtx.lineWidth = strokeWidth * canvasScale;
     });
 
     sigUploadDropzone.addEventListener("click", () => sigImageFileInput.click());
@@ -1555,7 +1742,14 @@ document.addEventListener("DOMContentLoaded", () => {
             let sigData = store.state.signature.activeDataUrl;
 
             if (activeTab === "draw" && canvasCtx) {
-                sigData = trimCanvas(sigCanvas) || sigCanvas.toDataURL("image/png");
+                // trimCanvas() returns null for a blank canvas -- don't fall back to capturing the
+                // whole (blank) canvas anyway, or "draw nothing, click this" saves an invisible
+                // signature to the library.
+                sigData = trimCanvas(sigCanvas);
+                if (!sigData) {
+                    alert("Please draw a signature first.");
+                    return;
+                }
                 await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
                 canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
             } else if (activeTab === "upload" && sigData) {
@@ -1566,12 +1760,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     const item = savedList.find(s => s.id === id);
                     if (item) store.addSignatureToDoc(item.dataUrl);
                 });
-                return;
             }
-
-            if (sigData) {
-                store.addSignatureToDoc(sigData);
-            }
+            // Draw/upload tabs only save to the library here — "Add & Draw Another" means stay open
+            // and build up the library, not also drop an unrequested copy onto the document at a
+            // default corner. Placing onto the page is what "Use This Signature" and the library
+            // tray/tab's own placement actions are for.
         });
     }
 
@@ -1580,7 +1773,14 @@ document.addEventListener("DOMContentLoaded", () => {
         let sigData = store.state.signature.activeDataUrl;
 
         if (activeTab === "draw" && canvasCtx) {
-            sigData = trimCanvas(sigCanvas) || sigCanvas.toDataURL("image/png");
+            // trimCanvas() returns null for a blank canvas -- don't fall back to capturing the
+            // whole (blank) canvas anyway, or "click Use This Signature" with nothing drawn places
+            // an invisible signature on the document.
+            sigData = trimCanvas(sigCanvas);
+            if (!sigData) {
+                alert("Please draw a signature first.");
+                return;
+            }
             await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
         } else if (activeTab === "upload" && sigData) {
             await store.saveSignatureToLibrary(sigData, "Uploaded Signature");
@@ -1592,10 +1792,11 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             sigStudioModal.classList.add("hidden");
             return;
-        }
-
-        if (!store.state.signature.activeDataUrl && !sigData) {
-            alert("Please draw, upload, or select a signature first.");
+        } else if (activeTab === "upload" && !sigData) {
+            alert("Please upload a signature image first.");
+            return;
+        } else if (activeTab === "library") {
+            alert("Please select at least one saved signature first.");
             return;
         }
 
@@ -1607,10 +1808,294 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
 
+    // --- Overlay payload (signature images + text boxes) sent to /api/sign and /api/preview-pdf ---
+    function buildOverlaysPayload(items) {
+        const pagesModeVal = signPagesMode ? signPagesMode.value : "current";
+        const pageSpecVal = (signPageSpecInput && signPageSpecInput.value) ? signPageSpecInput.value : "";
+        const num = (v, fallback) => (v !== undefined && v !== null && Number.isFinite(Number(v))) ? Number(v) : fallback;
+
+        return items.map(s => {
+            const common = {
+                pages_spec: pagesModeVal === "current" ? ((s.page != null) ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
+                x: num(s.x, 50),
+                y: num(s.y, 50),
+                width: num(s.width, 150),
+                height: num(s.height, 60),
+                rotation: num(s.rotation, 0),
+                scale_x: num(s.scaleX, 1.0),
+                scale_y: num(s.scaleY, 1.0),
+                opacity: num(s.opacity, 1.0),
+                z_index: num(s.zIndex, 1) || 1,
+                locked: !!s.locked,
+                y_from_top: true
+            };
+            if (s.type === "text") {
+                return {
+                    ...common,
+                    type: "text",
+                    text: s.text || "",
+                    font_family: s.fontFamily || "helvetica",
+                    font_size: num(s.fontSize, 16),
+                    bold: !!s.bold,
+                    italic: !!s.italic,
+                    color: s.color || "#000000"
+                };
+            }
+            return { ...common, signature_img: s.dataUrl || "" };
+        });
+    }
+
+    // --- Text Boxes ---
+    // Text is laid out on a fixed grid so the stage matches the exported PDF exactly:
+    // each line is TEXT_LINE_HEIGHT * fontSize tall and the first baseline sits
+    // TEXT_BASELINE * fontSize below the box top. Keep in sync with core.py.
+    const TEXT_LINE_HEIGHT = 1.2;
+    const TEXT_BASELINE = 0.9;
+    const TEXT_MIN_FONT_SIZE = 4;
+    const TEXT_MAX_FONT_SIZE = 400;
+    const TEXT_FONT_STACKS = {
+        helvetica: "Helvetica, Arial, sans-serif",
+        times: "'Times New Roman', Times, serif",
+        courier: "'Courier New', Courier, monospace",
+        montserrat: "'Montserrat Text', sans-serif"
+    };
+    // Characters the PDF standard fonts can draw (Windows-1252)
+    const CP1252_EXTRAS = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+
+    const addTextBtn = document.getElementById("addTextBtn");
+    const textEditor = document.getElementById("textEditor");
+    const textEditorHint = document.getElementById("textEditorHint");
+    const textContentInput = document.getElementById("textContentInput");
+    const textCharWarning = document.getElementById("textCharWarning");
+    const textFontSelect = document.getElementById("textFontSelect");
+    const textSizeInput = document.getElementById("textSizeInput");
+    const textBoldBtn = document.getElementById("textBoldBtn");
+    const textItalicBtn = document.getElementById("textItalicBtn");
+    const textColorInput = document.getElementById("textColorInput");
+    const textColorBtns = document.querySelectorAll(".text-color-btn");
+
+    const measureCtx = document.createElement("canvas").getContext("2d");
+    // The PDF places glyphs by plain advance widths (no kerning pairs, no ligatures), so the stage
+    // must too, or Montserrat text would come out ~1% wider in the export than it looks here.
+    measureCtx.fontKerning = "none";
+    // Style used for the next box added, so a run of labels can share a look
+    let lastTextStyle = { fontFamily: "helvetica", fontSize: 16, bold: false, italic: false, color: "#000000" };
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    function textItemLabel(sig) {
+        const flat = (sig.text || "").replace(/\s+/g, " ").trim();
+        if (!flat) return "Text (empty)";
+        return `Text "${flat.length > 14 ? flat.slice(0, 14) + "…" : flat}"`;
+    }
+
+    function normalizeFontSize(size) {
+        const rounded = Math.round((Number(size) || 16) * 2) / 2;
+        return Math.max(TEXT_MIN_FONT_SIZE, Math.min(TEXT_MAX_FONT_SIZE, rounded));
+    }
+
+    // Would this text lose characters ("?") when drawn in the given font? Mirrors core.py.
+    function hasUnsupportedChars(text, fontFamily) {
+        const ranges = fontFamily === "montserrat" ? (window.MONTSERRAT_COVERAGE || []) : null;
+        for (const ch of text) {
+            const c = ch.codePointAt(0);
+            if (c === 10 || c === 13) continue;
+            const ok = ranges
+                ? ranges.some(([lo, hi]) => c >= lo && c <= hi)
+                : ((c >= 0x20 && c <= 0x7e) || (c >= 0xa0 && c <= 0xff) || CP1252_EXTRAS.includes(ch));
+            if (!ok) return true;
+        }
+        return false;
+    }
+
+    // Size of the box that hugs the text (in PDF points)
+    function measureTextBox(t) {
+        const fontSize = t.fontSize || 16;
+        measureCtx.font = `${t.italic ? "italic " : ""}${t.bold ? "bold " : ""}${fontSize}px ${TEXT_FONT_STACKS[t.fontFamily] || TEXT_FONT_STACKS.helvetica}`;
+        const lines = String(t.text || "").split("\n");
+        const widest = Math.max(...lines.map(line => measureCtx.measureText(line).width));
+        const width = Math.max(fontSize * 0.6, Math.round(widest * 100) / 100);
+        const height = Math.round(lines.length * TEXT_LINE_HEIGHT * fontSize * 100) / 100;
+        return { width, height, aspectRatio: width / height };
+    }
+
+    // The SVG viewBox is the box in PDF points, so the stage draws exactly what the PDF will contain
+    function buildTextSvg(sig) {
+        const fontSize = sig.fontSize || 16;
+        const lines = String(sig.text || "").split("\n");
+        const rows = lines.map((line, i) =>
+            `<text x="0" y="${(TEXT_BASELINE + i * TEXT_LINE_HEIGHT) * fontSize}" xml:space="preserve" style="white-space:pre">${escapeHtml(line)}</text>`
+        ).join("");
+        return `<svg class="text-overlay-svg" viewBox="0 0 ${sig.width} ${sig.height}" preserveAspectRatio="none"
+                    font-family="${TEXT_FONT_STACKS[sig.fontFamily] || TEXT_FONT_STACKS.helvetica}"
+                    font-size="${fontSize}" font-weight="${sig.bold ? "bold" : "normal"}"
+                    font-style="${sig.italic ? "italic" : "normal"}" fill="${escapeHtml(sig.color || "#000000")}"
+                    style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:'kern' 0,'liga' 0,'clig' 0">${rows}</svg>`;
+    }
+
+    function getSelectedTextItem() {
+        const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+        return sig && sig.type === "text" ? sig : null;
+    }
+
+    // Applies a text/style change, re-fitting the box to the new text
+    function applyTextChange(sig, changes, recordHistory = false) {
+        const next = { ...sig, ...changes };
+        if (changes.fontSize !== undefined) next.fontSize = normalizeFontSize(next.fontSize);
+        store.updateSignatureOnDoc(sig.id, {
+            ...changes,
+            fontSize: next.fontSize,
+            ...measureTextBox(next)
+        }, recordHistory);
+        syncInspectorInputs(sig);
+    }
+
+    // Used by the W/H inspector inputs: resizing a text box scales its font
+    function scaleTextItem(sig, factor) {
+        if (!Number.isFinite(factor) || factor <= 0) return;
+        applyTextChange(sig, { fontSize: sig.fontSize * factor }, true);
+    }
+
+    function focusTextEditor() {
+        if (!textContentInput || !getSelectedTextItem()) return;
+        textContentInput.focus();
+        textContentInput.select();
+    }
+
+    function syncTextEditor() {
+        if (!textEditor) return;
+        const sig = getSelectedTextItem();
+        textEditor.classList.toggle("hidden", !sig);
+        if (textEditorHint) textEditorHint.classList.toggle("hidden", !!sig);
+        if (!sig) return;
+
+        // Don't fight the caret while the user is typing
+        if (document.activeElement !== textContentInput) textContentInput.value = sig.text;
+        if (document.activeElement !== textSizeInput) textSizeInput.value = sig.fontSize;
+        textFontSelect.value = sig.fontFamily;
+        textBoldBtn.classList.toggle("active", !!sig.bold);
+        textItalicBtn.classList.toggle("active", !!sig.italic);
+        textColorInput.value = sig.color;
+        textColorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === sig.color));
+        textCharWarning.classList.toggle("hidden", !hasUnsupportedChars(sig.text || "", sig.fontFamily));
+    }
+
+    function rememberTextStyle(sig) {
+        lastTextStyle = { fontFamily: sig.fontFamily, fontSize: sig.fontSize, bold: sig.bold, italic: sig.italic, color: sig.color };
+    }
+
+    // Canvas measuring silently falls back to another font until Montserrat has loaded, so load every
+    // cut up front and re-fit any Montserrat boxes that were measured too early.
+    if (document.fonts && document.fonts.load) {
+        Promise.all(["400", "700", "italic 400", "italic 700"].map(v => document.fonts.load(`${v} 16px "Montserrat Text"`)))
+            .then(() => {
+                store.state.signature.activeSignaturesOnDoc
+                    .filter(s => s.type === "text" && s.fontFamily === "montserrat")
+                    .forEach(s => store.updateSignatureOnDoc(s.id, measureTextBox(s)));
+            })
+            .catch(() => { /* offline or blocked: the stage falls back to sans-serif, the PDF is unaffected */ });
+    }
+
+    if (addTextBtn) {
+        addTextBtn.addEventListener("click", () => {
+            const doc = store.state.document;
+            if (!doc.totalPages) {
+                showStatus("Upload a PDF first, then add text to it.", "error");
+                return;
+            }
+            showStatus(null);
+
+            const props = { text: "Your text", ...lastTextStyle };
+            const box = measureTextBox(props);
+            const page = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+            // Centered on the page, fanned out so consecutive boxes don't stack exactly
+            const fan = (store.state.signature.activeSignaturesOnDoc.length % 6) * 18;
+            const sig = store.addTextToDoc({
+                ...props,
+                ...box,
+                page: doc.currentPage,
+                x: Math.max(0, Math.round((page.width - box.width) / 2) + fan),
+                y: Math.max(0, Math.round((page.height - box.height) / 2) + fan)
+            });
+
+            selectedSigId = sig.id;
+            syncInspectorInputs(sig);
+            renderStageSignatures();
+            focusTextEditor();
+        });
+    }
+
+    if (textContentInput) {
+        let editSnapshotTaken = false;
+        textContentInput.addEventListener("focus", () => { editSnapshotTaken = false; });
+        textContentInput.addEventListener("input", () => {
+            const sig = getSelectedTextItem();
+            if (!sig) return;
+            // One undo step per editing session rather than one per keystroke
+            if (!editSnapshotTaken) {
+                store.recordStateSnapshot();
+                editSnapshotTaken = true;
+            }
+            applyTextChange(sig, { text: textContentInput.value });
+        });
+    }
+
+    textFontSelect.addEventListener("change", () => {
+        const sig = getSelectedTextItem();
+        if (!sig) return;
+        applyTextChange(sig, { fontFamily: textFontSelect.value }, true);
+        rememberTextStyle(sig);
+    });
+
+    textSizeInput.addEventListener("change", () => {
+        const sig = getSelectedTextItem();
+        if (!sig) return;
+        applyTextChange(sig, { fontSize: parseFloat(textSizeInput.value) || sig.fontSize }, true);
+        rememberTextStyle(sig);
+    });
+
+    [[textBoldBtn, "bold"], [textItalicBtn, "italic"]].forEach(([btn, prop]) => {
+        btn.addEventListener("click", () => {
+            const sig = getSelectedTextItem();
+            if (!sig) return;
+            applyTextChange(sig, { [prop]: !sig[prop] }, true);
+            rememberTextStyle(sig);
+        });
+    });
+
+    textColorBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const sig = getSelectedTextItem();
+            if (!sig) return;
+            applyTextChange(sig, { color: btn.dataset.color }, true);
+            rememberTextStyle(sig);
+        });
+    });
+
+    // The native picker fires "input" continuously while dragging: one undo step per pick
+    let colorSnapshotTaken = false;
+    textColorInput.addEventListener("input", () => {
+        const sig = getSelectedTextItem();
+        if (!sig) return;
+        if (!colorSnapshotTaken) {
+            store.recordStateSnapshot();
+            colorSnapshotTaken = true;
+        }
+        applyTextChange(sig, { color: textColorInput.value });
+        rememberTextStyle(sig);
+    });
+    textColorInput.addEventListener("change", () => { colorSnapshotTaken = false; });
+
     // --- Action Processing ---
     processActionBtn.addEventListener("click", () => {
         const doc = store.state.document;
-        if (!doc.fileId && !doc.fileObj) {
+        // Merge mode's input is store.state.merge.files (from the dedicated "Add PDFs to Merge"
+        // dropzone), not store.state.document -- that's only ever set by the single-file upload
+        // card above it. Merge has its own "at least one file" check further down; this guard was
+        // blocking every merge whose files came solely from the merge dropzone (the normal case).
+        if (store.state.currentMode !== "merge" && !doc.fileId && !doc.fileObj) {
             showStatus("Please upload a PDF file first.", "error");
             return;
         }
@@ -1640,25 +2125,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             endpoint = "/api/sign";
 
-            const pagesModeVal = signPagesMode ? signPagesMode.value : "current";
-            const pageSpecVal = (signPageSpecInput && signPageSpecInput.value) ? signPageSpecInput.value : "";
-            const sigsPayload = activeSigs.map(s => ({
-                signature_img: s.dataUrl || "",
-                pages_spec: pagesModeVal === "current" ? ((s.page != null) ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
-                x: Number(s.x) || 50,
-                y: Number(s.y) || 50,
-                width: Number(s.width) || 150,
-                height: Number(s.height) || 60,
-                rotation: Number(s.rotation) || 0,
-                scale_x: Number(s.scaleX) || 1.0,
-                scale_y: Number(s.scaleY) || 1.0,
-                opacity: s.opacity !== undefined ? Number(s.opacity) : 1.0,
-                z_index: Number(s.zIndex) || 1,
-                locked: !!s.locked,
-                y_from_top: true
-            }));
-
-            formData.append("signatures_json", JSON.stringify(sigsPayload));
+            formData.append("signatures_json", JSON.stringify(buildOverlaysPayload(activeSigs)));
 
         } else if (store.state.currentMode === "duplicate") {
             endpoint = "/api/duplicate";
@@ -1756,12 +2223,32 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // --- Isolated Stage Zooming & Figma Pan Tool ---
+    // --- Figma-Style Infinite Canvas: Free Pan & Zoom ---
+    // The page is positioned with a translate + scale transform rather than by scrolling the
+    // viewport, so it can be dragged anywhere in the stage (scrolling clamps it to the edges).
+    // Left-drag on anything that isn't a placed item pans; middle/right-drag, Space+drag and the
+    // Hand tool pan from anywhere. Trackpad two-finger scroll pans, pinch / ⌘-scroll zooms toward
+    // the cursor. screenToDocument() reads getBoundingClientRect(), so it follows the transform.
     const togglePanToolBtn = document.getElementById("togglePanToolBtn");
+    const PAN_THRESHOLD_PX = 3;
     let isPanModeActive = false;
     let isPanning = false;
+    let panPending = null; // { button, startX, startY, onEmpty } until the pointer moves past the threshold
     let panStartX = 0, panStartY = 0;
-    let scrollLeftStart = 0, scrollTopStart = 0;
+    let panOriginX = 0, panOriginY = 0;
+    let panX = 0, panY = 0;
+    let zoomLevel = 1.0;
+    let suppressNextClick = false;
+
+    function applyStageTransform() {
+        if (!pdfCanvasContainer) return;
+        pdfCanvasContainer.style.transformOrigin = "0 0";
+        pdfCanvasContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+    }
+
+    function isTypingTarget(el) {
+        return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
+    }
 
     function setPanMode(active) {
         isPanModeActive = active;
@@ -1782,7 +2269,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Spacebar Key Hold for Temporary Figma Pan Mode
     window.addEventListener("keydown", (e) => {
-        if (e.code === "Space" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+        if (e.code === "Space" && !isTypingTarget(document.activeElement)) {
             e.preventDefault();
             if (!isPanModeActive) setPanMode(true);
         }
@@ -1794,67 +2281,143 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    function beginPan(clientX, clientY) {
+        isPanning = true;
+        stageViewport.classList.add("is-panning");
+        panStartX = clientX;
+        panStartY = clientY;
+        panOriginX = panX;
+        panOriginY = panY;
+    }
+
     if (stageViewport) {
+        // Capture phase so the Hand tool / middle button pan even when pressed on a placed item,
+        // before that item's own drag handler sees the event.
         stageViewport.addEventListener("mousedown", (e) => {
-            if (isPanModeActive || e.button === 1 || e.button === 2) { // Left-click in Pan mode, Middle click, or Right click
-                isPanning = true;
-                stageViewport.classList.add("is-panning");
-                panStartX = e.clientX;
-                panStartY = e.clientY;
-                scrollLeftStart = stageViewport.scrollLeft;
-                scrollTopStart = stageViewport.scrollTop;
+            closeItemContextMenu();
+            if (isPanModeActive || e.button === 1) {
+                beginPan(e.clientX, e.clientY);
                 e.preventDefault();
+                e.stopPropagation();
             }
+        }, true);
+
+        stageViewport.addEventListener("mousedown", (e) => {
+            if (isPanning || e.target.closest(".signature-overlay")) return;
+            if (e.button !== 0 && e.button !== 2) return;
+            // Don't start a pan until the pointer actually moves, so a plain click still
+            // stamps (stamp mode) or deselects (everywhere else).
+            panPending = { button: e.button, startX: e.clientX, startY: e.clientY };
+            if (e.button === 0) e.preventDefault();
         });
 
-        stageViewport.addEventListener("contextmenu", (e) => {
-            if (isPanning || isPanModeActive) {
-                e.preventDefault();
-            }
-        });
+        // Right-click on the page/background never shows the browser menu; placed items show
+        // their own (see openItemContextMenu).
+        stageViewport.addEventListener("contextmenu", (e) => e.preventDefault());
 
         window.addEventListener("mousemove", (e) => {
+            if (panPending && !isPanning) {
+                const moved = Math.hypot(e.clientX - panPending.startX, e.clientY - panPending.startY);
+                if (moved < PAN_THRESHOLD_PX) return;
+                beginPan(panPending.startX, panPending.startY);
+            }
             if (!isPanning) return;
-            const dx = e.clientX - panStartX;
-            const dy = e.clientY - panStartY;
-            stageViewport.scrollLeft = scrollLeftStart - dx;
-            stageViewport.scrollTop = scrollTopStart - dy;
+            panX = panOriginX + (e.clientX - panStartX);
+            panY = panOriginY + (e.clientY - panStartY);
+            applyStageTransform();
         });
 
-        window.addEventListener("mouseup", () => {
+        window.addEventListener("mouseup", (e) => {
             if (isPanning) {
                 isPanning = false;
                 stageViewport.classList.remove("is-panning");
+                // A drag that started on the page must not also count as a stamp click.
+                if (panPending && panPending.button === 0) suppressNextClick = true;
+            } else if (panPending && panPending.button === 0 && !isStampModeActive && selectedSigId) {
+                // Plain click on empty page/background: deselect, like Figma.
+                selectedSigId = null;
+                renderStageSignatures();
             }
+            panPending = null;
         });
-    }    // --- Stage Canvas Zoom & Global Page Zoom Interception ---
+
+        window.addEventListener("click", (e) => {
+            if (suppressNextClick) {
+                suppressNextClick = false;
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }, true);
+
+        // Two-finger scroll / mouse wheel over the stage pans the canvas.
+        stageViewport.addEventListener("wheel", (e) => {
+            if (e.ctrlKey || e.metaKey) return; // handled by the zoom interceptor below
+            e.preventDefault();
+            const unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? stageViewport.clientHeight : 1);
+            const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+            const dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
+            panX -= dx * unit;
+            panY -= dy * unit;
+            applyStageTransform();
+        }, { passive: false });
+    }
+
+    // --- Stage Canvas Zoom & Global Page Zoom Interception ---
     const zoomOutBtn = document.getElementById("zoomOutBtn");
     const zoomInBtn = document.getElementById("zoomInBtn");
     const zoomResetBtn = document.getElementById("zoomResetBtn");
     const zoomVal = document.getElementById("zoomVal");
 
-    let zoomLevel = 1.0;
-
-    function setStageZoom(newZoom) {
-        zoomLevel = Math.max(0.3, Math.min(4.0, newZoom));
-        if (zoomVal) zoomVal.textContent = `${Math.round(zoomLevel * 100)}%`;
-        if (pdfCanvasContainer) {
-            pdfCanvasContainer.style.transform = `scale(${zoomLevel})`;
-            pdfCanvasContainer.style.transformOrigin = "top center";
+    // Zooms so that the screen point (anchorX, anchorY) stays over the same spot on the page.
+    // Defaults to the centre of the stage (toolbar buttons).
+    function setStageZoom(newZoom, anchorX, anchorY) {
+        const clamped = Math.max(0.3, Math.min(4.0, newZoom));
+        if (pdfCanvasContainer && stageViewport) {
+            if (anchorX === undefined) {
+                const vp = stageViewport.getBoundingClientRect();
+                anchorX = vp.left + vp.width / 2;
+                anchorY = vp.top + vp.height / 2;
+            }
+            // With transform-origin 0 0, the untransformed layout origin is the current rect's
+            // top-left minus the pan offset.
+            const rect = pdfCanvasContainer.getBoundingClientRect();
+            const originX = rect.left - panX;
+            const originY = rect.top - panY;
+            const ratio = clamped / zoomLevel;
+            panX = (anchorX - originX) - (anchorX - originX - panX) * ratio;
+            panY = (anchorY - originY) - (anchorY - originY - panY) * ratio;
         }
+        zoomLevel = clamped;
+        if (zoomVal) zoomVal.textContent = `${Math.round(zoomLevel * 100)}%`;
+        applyStageTransform();
+        renderStageSignatures();
+    }
+
+    function resetStageView() {
+        panX = 0;
+        panY = 0;
+        zoomLevel = 1.0;
+        if (zoomVal) zoomVal.textContent = "100%";
+        applyStageTransform();
         renderStageSignatures();
     }
 
     if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => setStageZoom(zoomLevel - 0.15));
     if (zoomInBtn) zoomInBtn.addEventListener("click", () => setStageZoom(zoomLevel + 0.15));
-    if (zoomResetBtn) zoomResetBtn.addEventListener("click", () => setStageZoom(1.0));
+    if (zoomResetBtn) zoomResetBtn.addEventListener("click", resetStageView);
+    store.subscribe("document:loaded", resetStageView);
 
     // Global interception: Prevent browser page zooming, route pinch/ctrl-wheel to stage canvas zoom (Figma style)
     window.addEventListener("wheel", (e) => {
         if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            const delta = e.deltaY < 0 ? 0.08 : -0.08;
-            setStageZoom(zoomLevel + delta);
+            const factor = Math.exp(-Math.max(-50, Math.min(50, e.deltaY)) * 0.01);
+            const overStage = stageViewport && stageViewport.contains(e.target);
+            if (overStage) {
+                setStageZoom(zoomLevel * factor, e.clientX, e.clientY);
+            } else {
+                setStageZoom(zoomLevel * factor);
+            }
         }
     }, { passive: false });
 
@@ -1899,24 +2462,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const activeSigs = store.state.signature.activeSignaturesOnDoc;
             if (activeSigs && activeSigs.length > 0) {
-                const pagesModeVal = signPagesMode ? signPagesMode.value : "current";
-                const pageSpecVal = signPageSpecInput ? signPageSpecInput.value : "";
-                const sigsPayload = activeSigs.map(s => ({
-                    signature_img: s.dataUrl,
-                    pages_spec: pagesModeVal === "current" ? (s.page != null ? s.page.toString() : "1") : (pagesModeVal === "custom" ? pageSpecVal : ""),
-                    x: Number(s.x) || 50,
-                    y: Number(s.y) || 50,
-                    width: Number(s.width) || 150,
-                    height: Number(s.height) || 60,
-                    rotation: Number(s.rotation) || 0,
-                    scale_x: Number(s.scaleX) || 1.0,
-                    scale_y: Number(s.scaleY) || 1.0,
-                    opacity: s.opacity !== undefined ? Number(s.opacity) : 1.0,
-                    z_index: Number(s.zIndex) || 1,
-                    locked: !!s.locked,
-                    y_from_top: true
-                }));
-                formData.append("signatures_json", JSON.stringify(sigsPayload));
+                formData.append("signatures_json", JSON.stringify(buildOverlaysPayload(activeSigs)));
             }
 
             fetch("/api/preview-pdf", {

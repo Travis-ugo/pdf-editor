@@ -18,14 +18,15 @@
     --border-color: rgba(255, 255, 255, 0.12);
     --border-accent: rgba(255, 255, 255, 0.22);
 
-    --apple-blue: #007aff;
-    --apple-blue-hover: #0062cc;
-    --apple-indigo: #5856d6;
+    /* Accent: Kudimata-style violet, brightened for contrast on dark surfaces */
+    --apple-blue: #a855f7;
+    --apple-blue-hover: #9333ea;
+    --apple-indigo: #7c3aed;
     --apple-emerald: #34c759;
     --apple-red: #ff3b30;
 
-    --card-radius: 16px;
-    --btn-radius: 10px;
+    --card-radius: 20px;
+    --btn-radius: 12px;
     --pill-radius: 9999px;
 
     --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.35);
@@ -48,6 +49,11 @@ body.light-mode {
 
     --border-color: rgba(0, 0, 0, 0.08);
     --border-accent: rgba(0, 0, 0, 0.16);
+
+    /* The exact Kudimata purple reads best on a white surface; dark mode uses a brighter tint
+       for contrast instead (see :root) */
+    --apple-blue: #670099;
+    --apple-blue-hover: #52007a;
 
     --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.08);
     --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.12);
@@ -175,7 +181,7 @@ body {
 }
 
 .sidebar-mode-tabs .segmented-item.active {
-    background: rgba(0, 122, 255, 0.12);
+    background: rgba(168, 85, 247, 0.12);
     color: var(--apple-blue);
     font-weight: 600;
     box-shadow: none;
@@ -196,7 +202,7 @@ body {
     font-size: 0.82rem;
     font-weight: 600;
     border-radius: 20px;
-    background: rgba(0, 122, 255, 0.15);
+    background: rgba(168, 85, 247, 0.15);
     border: 0.5px solid var(--apple-blue);
     color: var(--apple-blue);
     cursor: pointer;
@@ -323,7 +329,7 @@ body {
 }
 
 .sidebar-mode-tabs .segmented-item.active {
-    background: rgba(0, 122, 255, 0.1);
+    background: rgba(168, 85, 247, 0.1);
     color: var(--apple-blue);
     font-weight: 600;
 }
@@ -389,7 +395,7 @@ body {
     height: 22px;
     border-radius: 50%;
     border: 0.75px solid var(--apple-blue);
-    background: rgba(0, 122, 255, 0.1);
+    background: rgba(168, 85, 247, 0.1);
     color: var(--apple-blue);
     display: flex;
     align-items: center;
@@ -423,11 +429,11 @@ body {
 
 
 .apple-card {
-    background: transparent;
-    border: 0.5px solid var(--border-color);
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 8px;
+    background: var(--bg-glass);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 10px;
 }
 
 .card-header {
@@ -453,8 +459,8 @@ body {
 
 .card-header h3 {
     font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.03em;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-secondary);
 }
@@ -473,7 +479,7 @@ body {
 .upload-dropzone:hover,
 .upload-dropzone.dragover {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.06);
+    background: rgba(168, 85, 247, 0.06);
 }
 
 .file-input-hidden {
@@ -543,7 +549,7 @@ body {
 .form-label {
     font-size: 0.68rem;
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-secondary);
 }
@@ -565,7 +571,7 @@ body {
 .apple-input:focus,
 .apple-select:focus {
     border-color: var(--apple-blue);
-    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.18);
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.18);
 }
 
 /* Stepper Input */
@@ -656,7 +662,7 @@ body {
 .apple-btn {
     border: none;
     padding: 8px 18px;
-    border-radius: var(--btn-radius);
+    border-radius: var(--pill-radius);
     font-family: var(--font-family);
     font-weight: 600;
     font-size: 0.9rem;
@@ -670,6 +676,13 @@ body {
 
 .apple-btn:active {
     transform: scale(0.98);
+}
+
+.apple-btn:disabled,
+.apple-icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 
 .apple-btn.primary {
@@ -698,7 +711,7 @@ body {
 .large-btn {
     padding: 14px 20px;
     font-size: 1rem;
-    border-radius: 12px;
+    border-radius: var(--pill-radius);
 }
 
 /* Save Button — compact, sticky at sidebar bottom */
@@ -708,11 +721,11 @@ body {
 }
 
 .save-btn {
-    padding: 7px 14px;
-    font-size: 0.75rem;
-    font-weight: 600;
+    padding: 11px 14px;
+    font-size: 0.8rem;
+    font-weight: 700;
     letter-spacing: 0.03em;
-    border-radius: 7px;
+    border-radius: var(--pill-radius);
     transition: background 0.2s, opacity 0.2s, transform 0.1s;
 }
 
@@ -846,7 +859,9 @@ body {
 .stage-viewport {
     flex: 1;
     position: relative;
-    overflow: auto;
+    /* The page is moved with a transform (Figma-style free pan), not by scrolling. */
+    overflow: hidden;
+    overscroll-behavior: contain;
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -902,7 +917,7 @@ body {
 .signature-overlay {
     position: absolute;
     border: 1px dashed var(--apple-blue);
-    background: rgba(0, 122, 255, 0.12);
+    background: rgba(168, 85, 247, 0.12);
     cursor: grab;
     box-sizing: border-box;
     user-select: none;
@@ -923,24 +938,10 @@ body {
 
 .signature-overlay.active-selected {
     border-color: var(--apple-blue);
-    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.35);
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.35);
 }
 
-/* Overlay Action Bar (Checkmark ✓, Rotate & Remove ✕ Buttons) */
-.overlay-action-bar {
-    position: absolute;
-    bottom: -36px;
-    right: 0;
-    display: flex;
-    gap: 4px;
-    background: var(--bg-card-solid);
-    border: 0.5px solid var(--border-color);
-    padding: 2px 4px;
-    border-radius: 20px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 30;
-}
-
+/* Placed-item action buttons (sidebar list) */
 .overlay-action-btn {
     width: 24px;
     height: 24px;
@@ -985,7 +986,68 @@ body {
 }
 
 .overlay-action-btn.btn-rotate:hover {
-    background: rgba(0, 122, 255, 0.2);
+    background: rgba(168, 85, 247, 0.2);
+}
+
+/* Right-click menu for placed items on the stage */
+.item-context-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 190px;
+    padding: 5px;
+    background: var(--bg-card-solid);
+    border: 0.5px solid var(--border-accent);
+    border-radius: 10px;
+    box-shadow: var(--shadow-glass);
+    font-family: var(--font-family);
+}
+
+.item-context-menu .ctx-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.item-context-menu .ctx-item:hover,
+.item-context-menu .ctx-item:focus-visible {
+    background: var(--apple-blue);
+    color: #fff;
+    outline: none;
+}
+
+.item-context-menu .ctx-item.danger {
+    color: var(--apple-red);
+}
+
+.item-context-menu .ctx-item.danger:hover {
+    background: var(--apple-red);
+    color: #fff;
+}
+
+.item-context-menu .ctx-shortcut {
+    color: var(--text-tertiary);
+    font-size: 0.72rem;
+}
+
+.item-context-menu .ctx-item:hover .ctx-shortcut {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.item-context-menu .ctx-divider {
+    height: 0.5px;
+    margin: 4px 6px;
+    background: var(--border-color);
 }
 
 /* Multi Signature Sidebar List */
@@ -1090,7 +1152,9 @@ body {
     background: white;
     border: 1px solid var(--apple-blue);
     border-radius: 50%;
-    z-index: 15;
+    /* Above .corner-rot-zone: at a corner, the two hit areas overlap by a hair (see that rule's
+       comment), and the handle -- the smaller, more precise target -- should win there. */
+    z-index: 20;
     box-sizing: border-box;
 }
 
@@ -1146,86 +1210,46 @@ body {
     cursor: nwse-resize;
 }
 
-/* Rotation Stem & Handle (Microsoft Word Style) */
-.rotate-stem {
-    position: absolute;
-    top: -24px;
-    left: 50%;
-    width: 1.5px;
-    height: 24px;
-    background: var(--apple-blue);
-    transform: translateX(-50%);
-    pointer-events: none;
-}
-
-.handle-rot {
-    position: absolute;
-    top: -38px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 24px;
-    height: 24px;
-    background: var(--bg-card-solid);
-    border: 1.5px solid var(--apple-blue);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: bold;
-    color: var(--apple-blue);
-    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
-    z-index: 25;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    user-select: none;
-    transition: transform 0.15s, background-color 0.15s;
-}
-
-.handle-rot:hover {
-    background: var(--apple-blue);
-    color: white;
-    transform: translateX(-50%) scale(1.15);
-}
-
-.handle-rot:active {
-    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
-}
-
-/* Microsoft Word Style Corner Rotation Hover Zones */
+/* Word/PowerPoint-style corner rotation: no handle is shown until the pointer nears a corner.
+   Each zone sits diagonally just beyond its resize handle (12px, centered on the corner) rather
+   than on top of it, so the two hit areas only share a ~1px sliver at the inner edge -- resolved
+   by .resize-handle's higher z-index, so the precise scale handle always wins there, and
+   everywhere else in the zone rotates instead. */
 .corner-rot-zone {
     position: absolute;
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     z-index: 18;
     pointer-events: auto;
     opacity: 0;
-    transition: opacity 0.15s, transform 0.15s;
+    transition: opacity 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23007aff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="%23a855f7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>') 11 11, crosshair;
 }
 
-.signature-overlay:hover .corner-rot-zone,
+/* Shows only when the pointer is actually over that corner's zone -- not for the whole shape --
+   so the icon appears precisely where the cursor already switched to the rotate glyph. */
 .corner-rot-zone:hover {
     opacity: 1;
 }
 
 .rot-nw {
-    top: -18px;
-    left: -18px;
+    top: -27px;
+    left: -27px;
 }
 .rot-ne {
-    top: -18px;
-    right: -18px;
+    top: -27px;
+    right: -27px;
 }
 .rot-sw {
-    bottom: -18px;
-    left: -18px;
+    bottom: -27px;
+    left: -27px;
 }
 .rot-se {
-    bottom: -18px;
-    right: -18px;
+    bottom: -27px;
+    right: -27px;
 }
 
 .corner-rot-zone::after {
@@ -1236,8 +1260,8 @@ body {
     background: var(--bg-card-solid);
     border: 1px solid var(--apple-blue);
     border-radius: 50%;
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1247,7 +1271,7 @@ body {
 
 .rot-live-tooltip {
     position: absolute;
-    top: -65px;
+    top: -36px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(10, 10, 15, 0.88);
@@ -1327,7 +1351,7 @@ body {
 .thumb-card.active {
     border-color: var(--apple-blue);
     opacity: 1;
-    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.3);
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.3);
 }
 
 .thumb-card img {
@@ -1478,7 +1502,7 @@ body {
 
 .color-btn.active {
     border-color: var(--apple-blue);
-    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.4);
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.4);
 }
 
 .apple-slider {
@@ -1576,7 +1600,7 @@ body {
 .apple-btn.small {
     padding: 7px 12px;
     font-size: 0.8rem;
-    border-radius: 8px;
+    border-radius: var(--pill-radius);
 }
 
 /* Saved Signature Library Grid */
@@ -1593,11 +1617,21 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
     margin-bottom: 12px;
     padding: 6px 12px;
     background: var(--bg-glass);
     border: 0.5px solid var(--border-color);
     border-radius: 8px;
+}
+
+.library-toolbar-multi .hint-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.library-toolbar-multi #addSelectedLibSigsBtn {
+    flex-shrink: 0;
 }
 
 .sig-library-card {
@@ -1615,8 +1649,8 @@ body {
 
 .sig-library-card.selected-card {
     border: 1px solid var(--apple-blue);
-    background: rgba(0, 122, 255, 0.15);
-    box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
+    background: rgba(168, 85, 247, 0.15);
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.4);
 }
 
 .sig-card-checkbox {
@@ -1632,7 +1666,7 @@ body {
 
 .sig-library-card:hover {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.08);
+    background: rgba(168, 85, 247, 0.08);
     transform: translateY(-2px);
 }
 
@@ -1801,7 +1835,7 @@ body {
 
 /* Stamp Active Banner */
 .stamp-banner {
-    background: rgba(0, 122, 255, 0.15);
+    background: rgba(168, 85, 247, 0.15);
     border: 0.5px solid var(--apple-blue);
     border-radius: 10px;
     padding: 10px 12px;
@@ -1828,10 +1862,10 @@ body {
     width: 150px;
     height: 60px;
     border: 1px dashed var(--apple-blue);
-    background: rgba(0, 122, 255, 0.18);
+    background: rgba(168, 85, 247, 0.18);
     border-radius: 4px;
     transform: translate(-50%, -50%);
-    box-shadow: 0 8px 24px rgba(0, 122, 255, 0.35);
+    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.35);
     transition: opacity 0.1s ease;
 }
 
@@ -1853,6 +1887,12 @@ body {
 /* Canvas Cursor in Stamp & Pan Mode */
 .stage-viewport.stamp-active #pdfCanvasContainer {
     cursor: crosshair !important;
+}
+
+.stage-viewport.is-panning,
+.stage-viewport.is-panning #pdfCanvasContainer,
+.stage-viewport.is-panning .signature-overlay {
+    cursor: grabbing !important;
 }
 
 .stage-viewport.pan-active {
@@ -1920,9 +1960,9 @@ body {
 
 .tray-sig-card:hover {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.08);
+    background: rgba(168, 85, 247, 0.08);
     transform: translateY(-1px);
-    box-shadow: 0 3px 10px rgba(0, 122, 255, 0.15);
+    box-shadow: 0 3px 10px rgba(168, 85, 247, 0.15);
 }
 
 .tray-sig-card:active {
@@ -1936,15 +1976,15 @@ body {
 
 .tray-sig-card.drag-over-target {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.2);
+    background: rgba(168, 85, 247, 0.2);
     transform: scale(1.02);
-    box-shadow: 0 0 10px rgba(0, 122, 255, 0.4);
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
 }
 
 .tray-sig-card.active-carrying {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.18);
-    box-shadow: 0 0 8px rgba(0, 122, 255, 0.35);
+    background: rgba(168, 85, 247, 0.18);
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.35);
 }
 
 .tray-sig-left {
@@ -2043,7 +2083,7 @@ body {
 
 .merge-file-item:hover {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.08);
+    background: rgba(168, 85, 247, 0.08);
 }
 
 .merge-file-item.dragging {
@@ -2053,7 +2093,7 @@ body {
 
 .merge-file-item.drag-over {
     border-color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.15);
+    background: rgba(168, 85, 247, 0.15);
 }
 
 .merge-item-drag-handle {
@@ -2070,7 +2110,7 @@ body {
     font-size: 0.65rem;
     font-weight: 700;
     color: var(--apple-blue);
-    background: rgba(0, 122, 255, 0.12);
+    background: rgba(168, 85, 247, 0.12);
     padding: 1px 4px;
     border-radius: 4px;
     line-height: 1;
@@ -2197,4 +2237,122 @@ body {
     padding: 4px 8px;
     font-size: 0.76rem;
     border-radius: 6px;
+}
+/* Montserrat for text boxes: the same TTF files the PDF export embeds, so bold/italic are the
+   real cuts on the stage too. Named separately so it never clashes with the UI's Google Fonts copy. */
+@font-face { font-family: 'Montserrat Text'; font-weight: 400; font-style: normal; src: url('../fonts/Montserrat-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Montserrat Text'; font-weight: 700; font-style: normal; src: url('../fonts/Montserrat-Bold.ttf') format('truetype'); }
+@font-face { font-family: 'Montserrat Text'; font-weight: 400; font-style: italic; src: url('../fonts/Montserrat-Italic.ttf') format('truetype'); }
+@font-face { font-family: 'Montserrat Text'; font-weight: 700; font-style: italic; src: url('../fonts/Montserrat-BoldItalic.ttf') format('truetype'); }
+
+/* Text Boxes (Sign & Text mode) */
+.signature-overlay.text-overlay {
+    background: transparent;
+}
+
+.signature-overlay.text-overlay.active-selected {
+    background: rgba(168, 85, 247, 0.06);
+}
+
+/* Text boxes scale by font size, so only the corner handles apply */
+.text-overlay .handle-n,
+.text-overlay .handle-s,
+.text-overlay .handle-e,
+.text-overlay .handle-w {
+    display: none;
+}
+
+/* The overlay's 1px border would inset the text layer; extend it back over the full box so the
+   stage draws text exactly where the PDF will (the viewBox is in PDF points). */
+.text-overlay .overlay-inner {
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
+.text-overlay-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.text-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.text-content-input {
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+    line-height: 1.35;
+}
+
+.text-char-warning {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    color: var(--apple-red);
+}
+
+.text-style-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.text-style-btn {
+    min-width: 32px;
+    padding: 5px 8px;
+}
+
+.text-style-btn.active {
+    background: var(--apple-blue);
+    border-color: var(--apple-blue);
+    color: white;
+}
+
+.text-color-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.text-color-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    padding: 0;
+}
+
+.text-color-btn.active {
+    border-color: var(--apple-blue);
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.4);
+}
+
+.text-color-input {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+.sig-item-thumb.text-thumb {
+    color: #1c1c1e;
+    font-family: Georgia, serif;
+    font-weight: 700;
+    font-size: 0.9rem;
 }

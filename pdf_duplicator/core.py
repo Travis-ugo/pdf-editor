@@ -194,6 +194,144 @@ def _process_image_input(sig_input):
     else:
         raise ValueError("Invalid signature image format.")
 
+# --- Text overlay support ---------------------------------------------------
+# Text boxes are laid out on a fixed grid so the browser preview and the PDF agree:
+# every line is TEXT_LINE_HEIGHT * font_size tall and the first baseline sits
+# TEXT_BASELINE * font_size below the top of the box. Keep these in sync with
+# TEXT_LINE_HEIGHT / TEXT_BASELINE in static/js/app.js.
+TEXT_LINE_HEIGHT = 1.2
+TEXT_BASELINE = 0.9
+TEXT_MIN_FONT_SIZE = 4
+TEXT_MAX_FONT_SIZE = 400
+
+# (family, bold, italic) -> built-in PDF font. These need no embedding.
+TEXT_FONTS = {
+    ("helvetica", False, False): "Helvetica",
+    ("helvetica", True, False): "Helvetica-Bold",
+    ("helvetica", False, True): "Helvetica-Oblique",
+    ("helvetica", True, True): "Helvetica-BoldOblique",
+    ("times", False, False): "Times-Roman",
+    ("times", True, False): "Times-Bold",
+    ("times", False, True): "Times-Italic",
+    ("times", True, True): "Times-BoldItalic",
+    ("courier", False, False): "Courier",
+    ("courier", True, False): "Courier-Bold",
+    ("courier", False, True): "Courier-Oblique",
+    ("courier", True, True): "Courier-BoldOblique",
+}
+
+# Montserrat ships with the app and is embedded (subset) into the PDF, so it also covers
+# far more characters than the built-in fonts. Same files the web UI loads for the stage.
+FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fonts")
+MONTSERRAT_FILES = {
+    (False, False): "Montserrat-Regular",
+    (True, False): "Montserrat-Bold",
+    (False, True): "Montserrat-Italic",
+    (True, True): "Montserrat-BoldItalic",
+}
+
+
+def _montserrat_font(bold, italic):
+    """Registers (once) and returns the reportlab font name for a Montserrat variant."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    name = MONTSERRAT_FILES[(bool(bold), bool(italic))]
+    if name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(name, os.path.join(FONTS_DIR, name + ".ttf")))
+    return name
+
+
+def _supported_codepoints(font_name):
+    """Set of code points a registered TrueType font can draw (None = built-in Windows-1252 font)."""
+    from reportlab.pdfbase import pdfmetrics
+
+    face = getattr(pdfmetrics.getFont(font_name), "face", None)
+    charmap = getattr(face, "charToGlyph", None)
+    return set(charmap) if charmap else None
+
+
+def text_font_coverage():
+    """
+    Code point ranges Montserrat can draw, as [[lo, hi], ...]. The web UI uses this to warn about
+    characters that would be replaced with '?' when the PDF is written.
+    """
+    codepoints = sorted(c for c in _supported_codepoints(_montserrat_font(False, False)) if c >= 0x20)
+    ranges = []
+    for cp in codepoints:
+        if ranges and cp == ranges[-1][1] + 1:
+            ranges[-1][1] = cp
+        else:
+            ranges.append([cp, cp])
+    return ranges
+
+
+def _process_text_item(item):
+    """
+    Validates a text overlay dict and returns its normalized drawing parameters,
+    or None when the text is blank (nothing to draw).
+    """
+    from reportlab.lib.colors import HexColor
+    from reportlab.pdfbase import pdfmetrics
+
+    text = str(item.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
+        return None
+
+    family = str(item.get("font_family") or "helvetica").lower()
+    bold = bool(item.get("bold"))
+    italic = bool(item.get("italic"))
+    if family == "montserrat":
+        font_name = _montserrat_font(bold, italic)
+    else:
+        font_name = TEXT_FONTS.get((family, bold, italic))
+    if font_name is None:
+        raise ValueError(f"Unsupported font family: {family}")
+
+    # Swap anything the font can't draw for '?' instead of emitting missing-glyph boxes.
+    # The built-in PDF fonts only cover Windows-1252; Montserrat has its own character map.
+    supported = _supported_codepoints(font_name)
+    if supported is None:
+        text = text.encode("cp1252", errors="replace").decode("cp1252")
+    else:
+        text = "".join(ch if (ch == "\n" or ord(ch) in supported) else "?" for ch in text)
+    lines = text.split("\n")
+
+    try:
+        font_size = float(item.get("font_size") or 16)
+    except (TypeError, ValueError):
+        raise ValueError("Invalid font size for text overlay.")
+    font_size = max(TEXT_MIN_FONT_SIZE, min(TEXT_MAX_FONT_SIZE, font_size))
+
+    try:
+        color = HexColor(str(item.get("color") or "#000000"))
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid text color: {item.get('color')}")
+
+    natural_width = max(pdfmetrics.stringWidth(line, font_name, font_size) for line in lines)
+    natural_height = len(lines) * TEXT_LINE_HEIGHT * font_size
+
+    return {
+        "lines": lines,
+        "font_name": font_name,
+        "font_size": font_size,
+        "color": color,
+        # The client measures the box it shows; fall back to our own metrics.
+        "width": float(item.get("width") or natural_width),
+        "height": float(item.get("height") or natural_height),
+    }
+
+
+def _draw_text_item(can, sig):
+    """Draws a processed text overlay with its top-left corner at (sig['x'], top edge)."""
+    top = sig["pdf_y"] + sig["height"]
+    can.setFillColor(sig["color"])
+    can.setFont(sig["font_name"], sig["font_size"])
+    for i, line in enumerate(sig["lines"]):
+        baseline = top - (TEXT_BASELINE + i * TEXT_LINE_HEIGHT) * sig["font_size"]
+        can.drawString(sig["x"], baseline, line)
+
+
 def add_signature_to_pdf(
     input_path,
     output_path,
@@ -209,7 +347,7 @@ def add_signature_to_pdf(
     rotation=0
 ):
     """
-    Adds single or multiple signature image overlays to specified pages of a PDF document.
+    Adds single or multiple signature image and text overlays to specified pages of a PDF document.
     
     :param input_path: Path to input PDF file
     :param output_path: Path to output PDF file
@@ -223,6 +361,9 @@ def add_signature_to_pdf(
     :param y_from_top: Measure Y coordinate from top of page if True
     :param signatures: Optional list of signature dict items for multi-signature placement:
                        [{ 'signature_img': ..., 'pages_spec': ..., 'x': ..., 'y': ..., 'width': ..., 'height': ..., 'rotation': ..., 'y_from_top': ... }]
+                       An item with 'type': 'text' draws text instead of an image and takes
+                       'text', 'font_family' (helvetica | times | courier | montserrat), 'font_size' (points),
+                       'bold', 'italic' and 'color' (hex) in place of 'signature_img'.
     :param rotation: Rotation angle in degrees clockwise (0 to 360)
     """
     import io
@@ -260,8 +401,15 @@ def add_signature_to_pdf(
     # Process all signature items
     processed_sigs = []
     for sig_item in signatures:
-        s_img = sig_item.get("signature_img") or signature_img
-        img_obj = _process_image_input(s_img)
+        is_text = sig_item.get("type") == "text"
+        if is_text:
+            text_props = _process_text_item(sig_item)
+            if text_props is None:
+                continue
+            img_obj = None
+        else:
+            text_props = None
+            img_obj = _process_image_input(sig_item.get("signature_img") or signature_img)
         spec = sig_item.get("pages_spec")
         if spec is None or spec == "":
             spec = sig_item.get("page")
@@ -274,11 +422,12 @@ def add_signature_to_pdf(
 
         processed_sigs.append({
             "img_obj": img_obj,
+            "text": text_props,
             "target_indices": target_idxs,
             "x": float(sig_item.get("x", 50)),
             "y": float(sig_item.get("y", 50)),
-            "width": float(sig_item.get("width", 150)),
-            "height": float(sig_item.get("height", 50)),
+            "width": text_props["width"] if is_text else float(sig_item.get("width", 150)),
+            "height": text_props["height"] if is_text else float(sig_item.get("height", 50)),
             "rotation": rot_val,
             "opacity": opacity_val,
             "z_index": z_index_val,
@@ -317,16 +466,20 @@ def add_signature_to_pdf(
                     can.rotate(-rot)
                     can.translate(-center_x, -center_y)
 
-                can.drawImage(
-                    ImageReader(sig["img_obj"]),
-                    sig["x"],
-                    pdf_y,
-                    width=sig["width"],
-                    height=sig["height"],
-                    mask='auto',
-                    preserveAspectRatio=True,
-                    anchor='c'
-                )
+                if sig["text"]:
+                    _draw_text_item(can, {**sig["text"], "x": sig["x"], "pdf_y": pdf_y,
+                                          "width": sig["width"], "height": sig["height"]})
+                else:
+                    can.drawImage(
+                        ImageReader(sig["img_obj"]),
+                        sig["x"],
+                        pdf_y,
+                        width=sig["width"],
+                        height=sig["height"],
+                        mask='auto',
+                        preserveAspectRatio=True,
+                        anchor='c'
+                    )
 
                 can.restoreState()
 

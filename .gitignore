@@ -152,3 +152,6 @@ Thumbs.db
 
 # User inputs / outputs
 *.pdf
+
+# Local app output (signed files, signature images)
+output/

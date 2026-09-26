@@ -58,7 +58,7 @@
 
             <!-- Mode Tabs -->
             <div class="sidebar-mode-tabs">
-                <button class="segmented-item active" data-mode="sign">✍️ Sign PDF</button>
+                <button class="segmented-item active" data-mode="sign">✍️ Sign & Text</button>
                 <button class="segmented-item" data-mode="merge">🔀 Merge</button>
                 <button class="segmented-item" data-mode="duplicate">📑 Duplicate</button>
                 <button class="segmented-item" data-mode="clone">🔓 Clone</button>
@@ -139,7 +139,7 @@
                 <!-- Placed Signatures List on Document -->
                 <div id="multiSigListCard" class="multi-sig-list-card margin-top hidden">
                     <div class="multi-sig-header">
-                        <span>Placed Signatures on Document (<span id="sigCountNum">0</span>)</span>
+                        <span>Placed on Document (<span id="sigCountNum">0</span>)</span>
                     </div>
                     <div id="placedSignaturesContainer" class="placed-signatures-container">
                         <!-- Items inserted dynamically -->
@@ -179,7 +179,7 @@
                             <input type="number" id="sigXInput" class="apple-input" value="50" step="5">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Y Pos (From Top)</label>
+                            <label class="form-label" title="Measured from the top of the page">Y Pos (Top)</label>
                             <input type="number" id="sigYInput" class="apple-input" value="50" step="5">
                         </div>
                         <div class="form-group">
@@ -216,6 +216,61 @@
                             <span class="form-label" style="margin-bottom: 0; font-size: 0.75rem;">Layer:</span>
                             <button id="sigZUpBtn" type="button" class="apple-btn secondary small" title="Bring Forward" style="padding: 2px 6px;">▲</button>
                             <button id="sigZDownBtn" type="button" class="apple-btn secondary small" title="Send Backward" style="padding: 2px 6px;">▼</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TEXT CONTROLS (shares the Sign mode overlay layer, page targeting & position inspector) -->
+            <div id="textControlsCard" class="apple-card mode-card">
+                <div class="card-header flex-between">
+                    <div class="header-title-group">
+                        <span class="step-num">3</span>
+                        <h3>Add Text</h3>
+                    </div>
+                    <button id="addTextBtn" class="sig-add-btn" title="Add a text box to the current page">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+
+                <p id="textEditorHint" class="tray-subtext margin-top">💡 Press <strong>+</strong> to place a text box, then drag, resize or rotate it on the page. Select a text box to edit it.</p>
+
+                <div id="textEditor" class="text-editor margin-top hidden">
+                    <div class="form-group">
+                        <label for="textContentInput" class="form-label">Text</label>
+                        <textarea id="textContentInput" class="apple-input text-content-input" rows="3" spellcheck="false" placeholder="Type your text..."></textarea>
+                        <p id="textCharWarning" class="text-char-warning hidden">Some characters aren't available in this font and will be replaced with “?” in the PDF.</p>
+                    </div>
+
+                    <div class="grid-2col">
+                        <div class="form-group">
+                            <label for="textFontSelect" class="form-label">Font</label>
+                            <select id="textFontSelect" class="apple-select">
+                                <option value="helvetica">Helvetica</option>
+                                <option value="times">Times</option>
+                                <option value="courier">Courier</option>
+                                <option value="montserrat">Montserrat</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="textSizeInput" class="form-label">Size (pt)</label>
+                            <input type="number" id="textSizeInput" class="apple-input" value="16" min="4" max="400" step="1">
+                        </div>
+                    </div>
+
+                    <div class="text-style-row margin-top-sm">
+                        <button id="textBoldBtn" type="button" class="apple-btn secondary small text-style-btn" title="Bold"><strong>B</strong></button>
+                        <button id="textItalicBtn" type="button" class="apple-btn secondary small text-style-btn" title="Italic"><em>I</em></button>
+                        <span class="tool-label">Color:</span>
+                        <div class="text-color-group">
+                            <button type="button" class="text-color-btn" data-color="#000000" style="background:#000000;" title="Black"></button>
+                            <button type="button" class="text-color-btn" data-color="#003366" style="background:#003366;" title="Navy"></button>
+                            <button type="button" class="text-color-btn" data-color="#0066cc" style="background:#0066cc;" title="Blue"></button>
+                            <button type="button" class="text-color-btn" data-color="#cc0000" style="background:#cc0000;" title="Red"></button>
+                            <input type="color" id="textColorInput" class="text-color-input" value="#000000" title="Custom color">
                         </div>
                     </div>
                 </div>
@@ -490,6 +545,8 @@
     </div>
 
     <!-- Reactive Store and Application Scripts -->
+    <!-- Code point ranges the embedded Montserrat font can draw (from the font's own character map) -->
+    <script>window.MONTSERRAT_COVERAGE = {{ montserrat_coverage|tojson }};</script>
     <script src="{{ url_for('static', filename='js/store.js') }}"></script>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

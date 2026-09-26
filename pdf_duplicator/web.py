@@ -9,7 +9,7 @@ from pypdf import PdfReader
 
 import fitz  # PyMuPDF for rendering page preview images
 
-from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs
+from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs, text_font_coverage
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
@@ -66,19 +66,29 @@ def sanitize_output_filename(default_name, custom_name=None):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", montserrat_coverage=text_font_coverage())
+
+def _safe_join(directory, filename):
+    """
+    Resolves filename under directory and returns the path only if it's actually a file that
+    stays within directory (guards against '..' or other traversal in a user-supplied filename).
+    """
+    candidate = os.path.realpath(os.path.join(directory, filename))
+    directory = os.path.realpath(directory)
+    if os.path.commonpath([candidate, directory]) != directory:
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
 
 @app.route("/output/<filename>")
 def download_output_file(filename):
     """
     Serves generated PDF files directly from the output directory.
     """
-    file_path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(file_path):
-        file_path = os.path.join(UPLOAD_TEMP_DIR, filename)
-    if not os.path.exists(file_path):
+    file_path = _safe_join(OUTPUT_DIR, filename) or _safe_join(UPLOAD_TEMP_DIR, filename)
+    if not file_path:
         return jsonify({"error": "File not found."}), 404
-    return send_file(file_path, as_attachment=True, download_name=filename, mimetype="application/pdf")
+    return send_file(file_path, as_attachment=True, download_name=os.path.basename(filename), mimetype="application/pdf")
 
 @app.route("/api/inspect-pdf", methods=["POST"])
 def inspect_pdf():
@@ -100,11 +110,14 @@ def inspect_pdf():
         reader = PdfReader(temp_path)
         is_encrypted = reader.is_encrypted
         if is_encrypted:
+            # The file is already saved under file_id regardless of encryption, so callers that
+            # can supply a password later (e.g. per-file passwords in Merge mode, which never
+            # re-calls this endpoint) still need file_id now to reference it at merge/sign time.
             if not password:
-                return jsonify({"error": "PDF is encrypted.", "is_encrypted": True}), 401
+                return jsonify({"error": "PDF is encrypted.", "is_encrypted": True, "file_id": file_id}), 401
             decrypted = reader.decrypt(password)
             if decrypted == 0:
-                return jsonify({"error": "Incorrect password for encrypted PDF.", "is_encrypted": True}), 401
+                return jsonify({"error": "Incorrect password for encrypted PDF.", "is_encrypted": True, "file_id": file_id}), 401
 
         total_pages = len(reader.pages)
         page_previews = []
@@ -120,8 +133,10 @@ def inspect_pdf():
             rect = page.rect  # width, height
             page_dimensions.append({"width": float(rect.width), "height": float(rect.height)})
             
-            # Render page to image (zoom factor 1.5 for crisp clarity)
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+            # Render page to image. This is also the background the editor draws signatures/text
+            # onto, so it needs to stay sharp on HiDPI (Retina) screens: zoom 2.0 renders at "@2x"
+            # density, matching typical Retina device-pixel ratio.
+            pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
             img_bytes = pix.tobytes("png")
             b64_img = "data:image/png;base64," + base64.b64encode(img_bytes).decode("utf-8")
             page_previews.append(b64_img)
@@ -193,7 +208,9 @@ def preview_pdf():
         page_previews = []
         for pno in range(len(doc)):
             page = doc.load_page(pno)
-            pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+            # This is the "what you'll actually download" preview, rendered once on demand, so it's
+            # worth the extra render time to render it at higher density ("@3x") than the live editor.
+            pix = page.get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
             img_bytes = pix.tobytes("png")
             b64_img = "data:image/png;base64," + base64.b64encode(img_bytes).decode("utf-8")
             page_previews.append(b64_img)
@@ -322,7 +339,10 @@ def duplicate_pdf_endpoint():
     file_id = request.form.get("file_id")
     password = request.form.get("password") or None
     pages_spec = request.form.get("pages_spec") or None
-    count = int(request.form.get("count", 2))
+    try:
+        count = int(request.form.get("count") or 2)
+    except ValueError:
+        return jsonify({"error": "Invalid duplication count."}), 400
     repeat_sequence = request.form.get("repeat_sequence", "false").lower() == "true"
 
     input_path = None
@@ -497,7 +517,7 @@ def merge_pdf_endpoint():
         saved_user_path = save_to_user_downloads(output_path, output_filename)
         download_url = f"/output/{output_filename}"
 
-        if request.headers.get("Accept") == "application/json" or request.is_json or True:
+        if request.headers.get("Accept") == "application/json":
             return jsonify({
                 "success": True,
                 "message": "PDFs merged successfully!",

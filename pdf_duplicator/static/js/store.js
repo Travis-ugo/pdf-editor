@@ -256,6 +256,40 @@ class PDFStudioStore {
     }
 
 
+    // Text boxes live in the same list as signature images (type: "text"), so they share
+    // selection, undo/redo, z-order, page targeting and the position inspector.
+    addTextToDoc(customProps = {}) {
+        this.recordStateSnapshot();
+        const items = this.state.signature.activeSignaturesOnDoc;
+        const maxZ = items.length > 0 ? Math.max(...items.map(s => s.zIndex || 1)) + 1 : 1;
+
+        const newTextItem = {
+            id: "text_doc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            type: "text",
+            text: "Your text",
+            fontFamily: "helvetica",
+            fontSize: 16,
+            bold: false,
+            italic: false,
+            color: "#000000",
+            page: this.state.document.currentPage || 1,
+            x: 50,
+            y: 50,
+            width: 0,
+            height: 0,
+            rotation: 0,
+            opacity: 1.0,
+            zIndex: maxZ,
+            locked: false,
+            confirmed: false,
+            ...customProps
+        };
+
+        items.push(newTextItem);
+        this.emit("signatures:doc_updated", items);
+        return newTextItem;
+    }
+
     updateSignatureOnDoc(id, newProps, recordHistory = false) {
         if (recordHistory) {
             this.recordStateSnapshot();
@@ -282,6 +316,39 @@ class PDFStudioStore {
             this.emit("signatures:doc_updated", this.state.signature.activeSignaturesOnDoc);
             this.emit("signature:confirmed", sig);
         }
+    }
+
+    // Copies a placed item (image or text) onto the same page, nudged down-right and on top.
+    duplicateSignatureOnDoc(id) {
+        const items = this.state.signature.activeSignaturesOnDoc;
+        const src = items.find(s => s.id === id);
+        if (!src) return null;
+        this.recordStateSnapshot();
+        const maxZ = Math.max(...items.map(s => s.zIndex || 1)) + 1;
+        const prefix = src.type === "text" ? "text_doc_" : "sig_doc_";
+        const copy = {
+            ...src,
+            id: prefix + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            x: src.x + 12,
+            y: src.y + 12,
+            zIndex: maxZ,
+            confirmed: false
+        };
+        items.push(copy);
+        this.emit("signatures:doc_updated", items);
+        return copy;
+    }
+
+    // "front" / "back": renumbers every item's zIndex 1..n so the target ends up top or bottom.
+    reorderSignatureOnDoc(id, where) {
+        const items = this.state.signature.activeSignaturesOnDoc;
+        const target = items.find(s => s.id === id);
+        if (!target) return;
+        this.recordStateSnapshot();
+        const others = items.filter(s => s.id !== id).sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1));
+        const ordered = where === "back" ? [target, ...others] : [...others, target];
+        ordered.forEach((s, i) => { s.zIndex = i + 1; });
+        this.emit("signatures:doc_updated", items);
     }
 
     removeSignatureFromDoc(id) {
