@@ -89,9 +89,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Multi-Signature Controls
     const openSigStudioBtn = document.getElementById("openSigStudioBtn");
-    const multiSigListCard = document.getElementById("multiSigListCard");
-    const sigCountNum = document.getElementById("sigCountNum");
-    const placedSignaturesContainer = document.getElementById("placedSignaturesContainer");
     
     const signPagesMode = document.getElementById("signPagesMode");
     const customPageRangeGroup = document.getElementById("customPageRangeGroup");
@@ -189,6 +186,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     store.subscribe("mode:changed", (mode) => {
         segmentedButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+        // Lets CSS show/hide the sign-only property sections.
+        document.querySelector(".app-container").dataset.mode = mode;
         signControlsCard.classList.add("hidden");
         if (textControlsCard) textControlsCard.classList.add("hidden");
         if (mergeControlsCard) mergeControlsCard.classList.add("hidden");
@@ -587,7 +586,7 @@ document.addEventListener("DOMContentLoaded", () => {
         store.state.document.pagePreviews.forEach((b64, idx) => {
             const card = document.createElement("div");
             card.className = `thumb-card ${idx === 0 ? 'active' : ''}`;
-            card.innerHTML = `<img src="${b64}" alt="Page ${idx + 1}">`;
+            card.innerHTML = `<span class="thumb-img"><img src="${b64}" alt=""></span><span class="thumb-label">Page ${idx + 1}</span>`;
             card.addEventListener("click", () => renderStagePage(idx + 1));
             thumbnailRibbon.appendChild(card);
         });
@@ -628,6 +627,7 @@ document.addEventListener("DOMContentLoaded", () => {
             signatureGhostCursor.classList.toggle("hidden", !active);
         }
         renderSignatureTray();
+        if (typeof syncToolbar === "function") syncToolbar();
     }
 
     if (stopStampBtn) {
@@ -850,13 +850,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeSigs = store.state.signature.activeSignaturesOnDoc;
         const scale = getScaleFactor();
 
-        if (sigCountNum) sigCountNum.textContent = activeSigs.length;
-        if (multiSigListCard) {
-            multiSigListCard.classList.toggle("hidden", activeSigs.length === 0);
-        }
-
-        renderPlacedSidebarList(activeSigs);
-
         activeSigs.forEach((sig) => {
             if (sig.page !== doc.currentPage && signPagesMode.value !== "all") return;
 
@@ -911,46 +904,6 @@ document.addEventListener("DOMContentLoaded", () => {
             attachOverlayDragAndResize(overlay, sig);
 
             pdfCanvasContainer.appendChild(overlay);
-        });
-    }
-
-    function renderPlacedSidebarList(activeSigs) {
-        if (!placedSignaturesContainer) return;
-        placedSignaturesContainer.innerHTML = "";
-
-        activeSigs.forEach((sig, index) => {
-            const item = document.createElement("div");
-            item.className = `sig-item-row ${selectedSigId === sig.id ? 'active' : ''}`;
-            item.innerHTML = `
-                <div class="sig-item-left">
-                    ${sig.type === "text"
-                        ? `<div class="sig-item-thumb text-thumb">T</div>`
-                        : `<div class="sig-item-thumb"><img src="${sig.dataUrl}" alt="Sig ${index + 1}"></div>`}
-                    <span class="sig-item-title">${sig.type === "text" ? escapeHtml(textItemLabel(sig)) : `Sig #${index + 1}`} (Pg ${sig.page})${sig.rotation ? ` · ${sig.rotation}°` : ''}</span>
-                </div>
-                <div class="sig-item-actions">
-                    <button class="overlay-action-btn btn-confirm small" title="Confirm Placement">${sig.confirmed ? '✓' : '✓'}</button>
-                    <button class="overlay-action-btn btn-remove small" title="Remove">✕</button>
-                </div>
-            `;
-
-            item.addEventListener("click", () => {
-                selectedSigId = sig.id;
-                syncInspectorInputs(sig);
-                renderStageSignatures();
-            });
-
-            item.querySelector(".btn-confirm").addEventListener("click", (e) => {
-                e.stopPropagation();
-                store.confirmSignatureOnDoc(sig.id);
-            });
-
-            item.querySelector(".btn-remove").addEventListener("click", (e) => {
-                e.stopPropagation();
-                store.removeSignatureFromDoc(sig.id);
-            });
-
-            placedSignaturesContainer.appendChild(item);
         });
     }
 
@@ -1463,6 +1416,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Ctrl+Z / Ctrl+Shift+Z elsewhere), which previously didn't exist.
     window.addEventListener("keydown", (e) => {
         if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+        if (sigStudioModal && !sigStudioModal.classList.contains("hidden")) return;
         if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
         e.preventDefault();
         if (e.shiftKey) {
@@ -1499,14 +1453,20 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    if (closeSigStudioBtn) closeSigStudioBtn.addEventListener("click", () => sigStudioModal && sigStudioModal.classList.add("hidden"));
-    if (cancelSigModalBtn) cancelSigModalBtn.addEventListener("click", () => sigStudioModal && sigStudioModal.classList.add("hidden"));
+    if (closeSigStudioBtn) closeSigStudioBtn.addEventListener("click", () => closeSigStudio());
+    if (cancelSigModalBtn) cancelSigModalBtn.addEventListener("click", () => closeSigStudio());
+    // Clicking the dimmed backdrop (not the dialog) closes it too.
+    if (sigStudioModal) sigStudioModal.addEventListener("mousedown", (e) => {
+        if (e.target === sigStudioModal) closeSigStudio();
+    });
 
 
     modalTabs.forEach(tab => {
         tab.addEventListener("click", () => {
             modalTabs.forEach(t => t.classList.remove("active"));
             tab.classList.add("active");
+            showSigHint(null);
+            if (addAndKeepSigBtn) addAndKeepSigBtn.classList.toggle("hidden", tab.dataset.tab === "library");
             tabDraw.classList.add("hidden");
             tabUpload.classList.add("hidden");
             tabLibrary.classList.add("hidden");
@@ -1575,7 +1535,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateAddSelectedLibBtn() {
         if (!addSelectedLibSigsBtn) return;
         const count = selectedLibSigIds.size;
-        addSelectedLibSigsBtn.textContent = `Add Selected Signatures (${count})`;
+        addSelectedLibSigsBtn.textContent = count ? `Add ${count} to page` : "Add to page";
         addSelectedLibSigsBtn.disabled = count === 0;
     }
 
@@ -1648,6 +1608,73 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- Signature Studio helpers ---
+    const sigCanvasWrapper = document.getElementById("sigCanvasWrapper");
+    const undoStrokeBtn = document.getElementById("undoStrokeBtn");
+    const sigModalHint = document.getElementById("sigModalHint");
+    const MAX_STROKE_UNDO = 40;
+    let strokeHistory = []; // canvas snapshots taken before each stroke
+
+    function showSigHint(msg, type = "error") {
+        if (!sigModalHint) return;
+        sigModalHint.textContent = msg || "";
+        sigModalHint.className = `modal-hint ${msg ? type : ""}`;
+    }
+
+    function setCanvasHasInk(hasInk) {
+        if (sigCanvasWrapper) sigCanvasWrapper.classList.toggle("has-ink", hasInk);
+        if (hasInk) showSigHint(null);
+    }
+
+    function pushStrokeSnapshot() {
+        if (!canvasCtx) return;
+        strokeHistory.push(canvasCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height));
+        if (strokeHistory.length > MAX_STROKE_UNDO) strokeHistory.shift();
+        if (undoStrokeBtn) undoStrokeBtn.disabled = false;
+    }
+
+    function undoStroke() {
+        if (!canvasCtx || !strokeHistory.length) return;
+        const snap = strokeHistory.pop();
+        // A resize in initCanvas() changes the buffer size; a stale snapshot can't be restored.
+        if (snap.width === sigCanvas.width && snap.height === sigCanvas.height) {
+            canvasCtx.putImageData(snap, 0, 0);
+        } else {
+            canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+            strokeHistory = [];
+        }
+        if (undoStrokeBtn) undoStrokeBtn.disabled = strokeHistory.length === 0;
+        setCanvasHasInk(!!trimCanvas(sigCanvas));
+    }
+
+    function clearSigCanvas() {
+        if (canvasCtx) canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+        strokeHistory = [];
+        if (undoStrokeBtn) undoStrokeBtn.disabled = true;
+        setCanvasHasInk(false);
+    }
+
+    function closeSigStudio() {
+        if (sigStudioModal) sigStudioModal.classList.add("hidden");
+        showSigHint(null);
+    }
+
+    function isSigStudioOpen() {
+        return !!sigStudioModal && !sigStudioModal.classList.contains("hidden");
+    }
+
+    // Inside the studio: Esc closes it, ⌘Z / Ctrl+Z undoes the last stroke on the Draw tab.
+    window.addEventListener("keydown", (e) => {
+        if (!isSigStudioOpen()) return;
+        if (e.key === "Escape") {
+            e.preventDefault();
+            closeSigStudio();
+        } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z" && !tabDraw.classList.contains("hidden")) {
+            e.preventDefault();
+            undoStroke();
+        }
+    });
+
     function initCanvas() {
         if (!canvasCtx) return;
 
@@ -1687,6 +1714,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const startDraw = (e) => {
             isDrawing = true;
+            pushStrokeSnapshot();
+            setCanvasHasInk(true);
             const pos = getCanvasPos(e);
             canvasCtx.beginPath();
             canvasCtx.moveTo(pos.x, pos.y);
@@ -1712,9 +1741,8 @@ document.addEventListener("DOMContentLoaded", () => {
         window.addEventListener("touchend", stopDraw);
     }
 
-    clearCanvasBtn.addEventListener("click", () => {
-        if (canvasCtx) canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
-    });
+    clearCanvasBtn.addEventListener("click", clearSigCanvas);
+    if (undoStrokeBtn) undoStrokeBtn.addEventListener("click", undoStroke);
 
     colorBtns.forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1759,19 +1787,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 // signature to the library.
                 sigData = trimCanvas(sigCanvas);
                 if (!sigData) {
-                    alert("Please draw a signature first.");
+                    showSigHint("Draw your signature first.");
                     return;
                 }
                 await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
-                canvasCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+                clearSigCanvas();
+                showSigHint("Saved to your library. Draw the next one.", "info");
             } else if (activeTab === "upload" && sigData) {
                 await store.saveSignatureToLibrary(sigData, "Uploaded Signature");
-            } else if (activeTab === "library" && selectedLibSigIds.size > 0) {
-                const savedList = store.state.signature.savedSignatures;
-                selectedLibSigIds.forEach(id => {
-                    const item = savedList.find(s => s.id === id);
-                    if (item) store.addSignatureToDoc(item.dataUrl);
-                });
+                showSigHint("Saved to your library.", "info");
+            } else if (activeTab === "upload") {
+                showSigHint("Choose an image first.");
             }
             // Draw/upload tabs only save to the library here — "Add & Draw Another" means stay open
             // and build up the library, not also drop an unrequested copy onto the document at a
@@ -1790,7 +1816,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // an invisible signature on the document.
             sigData = trimCanvas(sigCanvas);
             if (!sigData) {
-                alert("Please draw a signature first.");
+                showSigHint("Draw your signature first.");
                 return;
             }
             await store.saveSignatureToLibrary(sigData, "Handwritten Signature");
@@ -1805,10 +1831,10 @@ document.addEventListener("DOMContentLoaded", () => {
             sigStudioModal.classList.add("hidden");
             return;
         } else if (activeTab === "upload" && !sigData) {
-            alert("Please upload a signature image first.");
+            showSigHint("Choose an image first.");
             return;
         } else if (activeTab === "library") {
-            alert("Please select at least one saved signature first.");
+            showSigHint("Select at least one saved signature.");
             return;
         }
 
@@ -1865,12 +1891,57 @@ document.addEventListener("DOMContentLoaded", () => {
     const TEXT_BASELINE = 0.9;
     const TEXT_MIN_FONT_SIZE = 4;
     const TEXT_MAX_FONT_SIZE = 400;
+    // --- Text fonts ---
+    // FONT_CATALOG comes from core.text_font_catalog(): the 3 built-in PDF fonts plus the families
+    // bundled in static/fonts. Each bundled family gets an @font-face per cut it actually has, under
+    // a private name, so the stage draws with exactly the files the PDF export embeds.
+    const FONT_CATALOG = window.FONT_CATALOG || [];
+    const FONT_BY_KEY = Object.fromEntries(FONT_CATALOG.map(f => [f.key, f]));
+    const FALLBACK_STACK = { sans: "sans-serif", serif: "serif", script: "cursive" };
     const TEXT_FONT_STACKS = {
         helvetica: "Helvetica, Arial, sans-serif",
         times: "'Times New Roman', Times, serif",
-        courier: "'Courier New', Courier, monospace",
-        montserrat: "'Montserrat Text', sans-serif"
+        courier: "'Courier New', Courier, monospace"
     };
+    (function registerEmbeddedFonts() {
+        const rules = [];
+        FONT_CATALOG.filter(f => f.files).forEach(f => {
+            const face = `PDFS ${f.label}`;
+            TEXT_FONT_STACKS[f.key] = `'${face}', ${FALLBACK_STACK[f.category] || "sans-serif"}`;
+            Object.entries(f.files).forEach(([cut, file]) => {
+                const [weight, style] = cut.split("-");
+                rules.push(`@font-face { font-family: '${face}'; font-weight: ${weight === "bold" ? 700 : 400}; font-style: ${style}; font-display: block; src: url('/static/fonts/${file}.ttf') format('truetype'); }`);
+            });
+        });
+        const styleEl = document.createElement("style");
+        styleEl.textContent = rules.join("\n");
+        document.head.appendChild(styleEl);
+    })();
+
+    // Bold/italic as they will actually be drawn: a family without that cut draws its regular one
+    // (mirrors core._embedded_font), so the stage never shows a faux style the PDF can't match.
+    function effectiveStyle(t) {
+        const f = FONT_BY_KEY[t.fontFamily];
+        return {
+            bold: !!t.bold && (!f || f.bold),
+            italic: !!t.italic && (!f || f.italic)
+        };
+    }
+
+    function fontCss(t, size) {
+        const eff = effectiveStyle(t);
+        return `${eff.italic ? "italic " : ""}${eff.bold ? "bold " : ""}${size}px ${TEXT_FONT_STACKS[t.fontFamily] || TEXT_FONT_STACKS.helvetica}`;
+    }
+
+    // Resolves once the cut a text item needs is ready to measure (built-in fonts resolve at once).
+    const fontLoads = new Map();
+    function ensureFontLoaded(t) {
+        const f = FONT_BY_KEY[t.fontFamily];
+        if (!f || !f.files || !document.fonts || !document.fonts.load) return Promise.resolve();
+        const key = fontCss(t, 16);
+        if (!fontLoads.has(key)) fontLoads.set(key, document.fonts.load(key).catch(() => []));
+        return fontLoads.get(key);
+    }
     // Characters the PDF standard fonts can draw (Windows-1252)
     const CP1252_EXTRAS = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
 
@@ -1885,6 +1956,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const textItalicBtn = document.getElementById("textItalicBtn");
     const textColorInput = document.getElementById("textColorInput");
     const textColorBtns = document.querySelectorAll(".text-color-btn");
+    const textColorSwatch = document.getElementById("textColorSwatch");
+    const fontPickerBtn = document.getElementById("fontPickerBtn");
+    const fontPickerLabel = document.getElementById("fontPickerLabel");
+
+    function setColorSwatch(hex) {
+        if (textColorSwatch) textColorSwatch.style.setProperty("--swatch", hex || "#000000");
+    }
 
     const measureCtx = document.createElement("canvas").getContext("2d");
     // The PDF places glyphs by plain advance widths (no kerning pairs, no ligatures), so the stage
@@ -1910,7 +1988,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Would this text lose characters ("?") when drawn in the given font? Mirrors core.py.
     function hasUnsupportedChars(text, fontFamily) {
-        const ranges = fontFamily === "montserrat" ? (window.MONTSERRAT_COVERAGE || []) : null;
+        const coverage = window.FONT_COVERAGE || {};
+        const ranges = coverage[fontFamily] || null;
         for (const ch of text) {
             const c = ch.codePointAt(0);
             if (c === 10 || c === 13) continue;
@@ -1925,7 +2004,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Size of the box that hugs the text (in PDF points)
     function measureTextBox(t) {
         const fontSize = t.fontSize || 16;
-        measureCtx.font = `${t.italic ? "italic " : ""}${t.bold ? "bold " : ""}${fontSize}px ${TEXT_FONT_STACKS[t.fontFamily] || TEXT_FONT_STACKS.helvetica}`;
+        measureCtx.font = fontCss(t, fontSize);
         const lines = String(t.text || "").split("\n");
         const widest = Math.max(...lines.map(line => measureCtx.measureText(line).width));
         const width = Math.max(fontSize * 0.6, Math.round(widest * 100) / 100);
@@ -1936,15 +2015,16 @@ document.addEventListener("DOMContentLoaded", () => {
     // The SVG viewBox is the box in PDF points, so the stage draws exactly what the PDF will contain
     function buildTextSvg(sig) {
         const fontSize = sig.fontSize || 16;
+        const eff = effectiveStyle(sig);
         const lines = String(sig.text || "").split("\n");
         const rows = lines.map((line, i) =>
             `<text x="0" y="${(TEXT_BASELINE + i * TEXT_LINE_HEIGHT) * fontSize}" xml:space="preserve" style="white-space:pre">${escapeHtml(line)}</text>`
         ).join("");
         return `<svg class="text-overlay-svg" viewBox="0 0 ${sig.width} ${sig.height}" preserveAspectRatio="none"
                     font-family="${TEXT_FONT_STACKS[sig.fontFamily] || TEXT_FONT_STACKS.helvetica}"
-                    font-size="${fontSize}" font-weight="${sig.bold ? "bold" : "normal"}"
-                    font-style="${sig.italic ? "italic" : "normal"}" fill="${escapeHtml(sig.color || "#000000")}"
-                    style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:'kern' 0,'liga' 0,'clig' 0">${rows}</svg>`;
+                    font-size="${fontSize}" font-weight="${eff.bold ? "bold" : "normal"}"
+                    font-style="${eff.italic ? "italic" : "normal"}" fill="${escapeHtml(sig.color || "#000000")}"
+                    style="font-synthesis:none;font-kerning:none;font-variant-ligatures:none;font-feature-settings:'kern' 0,'liga' 0,'clig' 0">${rows}</svg>`;
     }
 
     function getSelectedTextItem() {
@@ -1962,6 +2042,19 @@ document.addEventListener("DOMContentLoaded", () => {
             ...measureTextBox(next)
         }, recordHistory);
         syncInspectorInputs(sig);
+        // Canvas measuring silently uses a fallback font until the real one has loaded; re-fit then.
+        ensureFontLoaded(next).then(() => refitTextItems(next.fontFamily));
+    }
+
+    function refitTextItems(fontFamily) {
+        store.state.signature.activeSignaturesOnDoc
+            .filter(s => s.type === "text" && s.fontFamily === fontFamily)
+            .forEach(s => {
+                const box = measureTextBox(s);
+                if (Math.abs(box.width - s.width) > 0.01 || Math.abs(box.height - s.height) > 0.01) {
+                    store.updateSignatureOnDoc(s.id, box);
+                }
+            });
     }
 
     // Used by the W/H inspector inputs: resizing a text box scales its font
@@ -1987,9 +2080,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (document.activeElement !== textContentInput) textContentInput.value = sig.text;
         if (document.activeElement !== textSizeInput) textSizeInput.value = sig.fontSize;
         textFontSelect.value = sig.fontFamily;
-        textBoldBtn.classList.toggle("active", !!sig.bold);
-        textItalicBtn.classList.toggle("active", !!sig.italic);
+        const fontInfo = FONT_BY_KEY[sig.fontFamily];
+        if (fontPickerLabel) {
+            fontPickerLabel.textContent = fontInfo ? fontInfo.label : sig.fontFamily;
+            fontPickerLabel.style.fontFamily = TEXT_FONT_STACKS[sig.fontFamily] || "";
+        }
+        [[textBoldBtn, "bold", "Bold"], [textItalicBtn, "italic", "Italic"]].forEach(([btn, prop, name]) => {
+            const available = !fontInfo || fontInfo[prop];
+            btn.disabled = !available;
+            btn.title = available ? name : `${fontInfo.label} has no ${name.toLowerCase()} style`;
+            btn.classList.toggle("active", available && !!sig[prop]);
+        });
         textColorInput.value = sig.color;
+        setColorSwatch(sig.color);
         textColorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === sig.color));
         textCharWarning.classList.toggle("hidden", !hasUnsupportedChars(sig.text || "", sig.fontFamily));
     }
@@ -1998,17 +2101,8 @@ document.addEventListener("DOMContentLoaded", () => {
         lastTextStyle = { fontFamily: sig.fontFamily, fontSize: sig.fontSize, bold: sig.bold, italic: sig.italic, color: sig.color };
     }
 
-    // Canvas measuring silently falls back to another font until Montserrat has loaded, so load every
-    // cut up front and re-fit any Montserrat boxes that were measured too early.
-    if (document.fonts && document.fonts.load) {
-        Promise.all(["400", "700", "italic 400", "italic 700"].map(v => document.fonts.load(`${v} 16px "Montserrat Text"`)))
-            .then(() => {
-                store.state.signature.activeSignaturesOnDoc
-                    .filter(s => s.type === "text" && s.fontFamily === "montserrat")
-                    .forEach(s => store.updateSignatureOnDoc(s.id, measureTextBox(s)));
-            })
-            .catch(() => { /* offline or blocked: the stage falls back to sans-serif, the PDF is unaffected */ });
-    }
+    // New boxes use lastTextStyle; warm that font so the first box is measured with it.
+    ensureFontLoaded(lastTextStyle);
 
     if (addTextBtn) {
         addTextBtn.addEventListener("click", () => {
@@ -2036,6 +2130,7 @@ document.addEventListener("DOMContentLoaded", () => {
             syncInspectorInputs(sig);
             renderStageSignatures();
             focusTextEditor();
+            ensureFontLoaded(sig).then(() => refitTextItems(sig.fontFamily));
         });
     }
 
@@ -2099,6 +2194,320 @@ document.addEventListener("DOMContentLoaded", () => {
         rememberTextStyle(sig);
     });
     textColorInput.addEventListener("change", () => { colorSnapshotTaken = false; });
+
+    // --- Font picker (Figma-style list, each name drawn in its own font) ---
+    const FONT_GROUPS = [["standard", "Standard"], ["sans", "Sans serif"], ["serif", "Serif"], ["script", "Script & handwriting"]];
+    FONT_CATALOG.forEach(f => textFontSelect.add(new Option(f.label, f.key)));
+
+    let fontPopover = null;
+    let fontPreviewsLoaded = false;
+
+    function closeFontPicker() {
+        if (!fontPopover) return;
+        fontPopover.remove();
+        fontPopover = null;
+        fontPickerBtn.setAttribute("aria-expanded", "false");
+    }
+
+    function openFontPicker() {
+        closeFontPicker();
+        const current = textFontSelect.value;
+        const pop = document.createElement("div");
+        pop.className = "font-popover";
+        pop.innerHTML = `
+            <input type="text" class="font-search" placeholder="Search fonts" aria-label="Search fonts" spellcheck="false">
+            <div class="font-list" role="listbox"></div>`;
+        const list = pop.querySelector(".font-list");
+        const search = pop.querySelector(".font-search");
+
+        FONT_GROUPS.forEach(([cat, title]) => {
+            const fonts = FONT_CATALOG.filter(f => f.category === cat);
+            if (!fonts.length) return;
+            list.insertAdjacentHTML("beforeend", `<div class="font-group-title" data-group="${cat}">${title}</div>`);
+            fonts.forEach(f => {
+                const opt = document.createElement("button");
+                opt.type = "button";
+                opt.className = `font-option ${f.key === current ? "selected" : ""}`;
+                opt.setAttribute("role", "option");
+                opt.dataset.key = f.key;
+                opt.dataset.group = cat;
+                opt.innerHTML = `<span class="font-option-name" style="font-family:${TEXT_FONT_STACKS[f.key]}">${escapeHtml(f.label)}</span>
+                    <svg class="font-option-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+                opt.addEventListener("click", () => chooseFont(f.key));
+                list.appendChild(opt);
+            });
+        });
+
+        search.addEventListener("input", () => {
+            const q = search.value.trim().toLowerCase();
+            list.querySelectorAll(".font-option").forEach(o => {
+                o.classList.toggle("hidden", !!q && !FONT_BY_KEY[o.dataset.key].label.toLowerCase().includes(q));
+            });
+            list.querySelectorAll(".font-group-title").forEach(t => {
+                t.classList.toggle("hidden", !list.querySelector(`.font-option[data-group="${t.dataset.group}"]:not(.hidden)`));
+            });
+            const first = list.querySelector(".font-option:not(.hidden)");
+            list.querySelectorAll(".font-option.focused").forEach(o => o.classList.remove("focused"));
+            if (first) first.classList.add("focused");
+        });
+
+        search.addEventListener("keydown", (e) => {
+            const visible = Array.from(list.querySelectorAll(".font-option:not(.hidden)"));
+            let idx = visible.findIndex(o => o.classList.contains("focused"));
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                if (idx === -1) idx = visible.findIndex(o => o.classList.contains("selected"));
+                idx = Math.max(0, Math.min(visible.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)));
+                visible.forEach(o => o.classList.remove("focused"));
+                if (visible[idx]) { visible[idx].classList.add("focused"); visible[idx].scrollIntoView({ block: "nearest" }); }
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                const pick = visible[idx] || visible[0];
+                if (pick) chooseFont(pick.dataset.key);
+            } else if (e.key === "Escape") {
+                e.stopPropagation();
+                closeFontPicker();
+                fontPickerBtn.focus();
+            }
+        });
+
+        document.body.appendChild(pop);
+        const r = fontPickerBtn.getBoundingClientRect();
+        const width = Math.max(220, r.width);
+        pop.style.width = `${width}px`;
+        pop.style.left = `${Math.min(r.left, window.innerWidth - width - 8)}px`;
+        const below = window.innerHeight - r.bottom - 12;
+        if (below >= 260) {
+            pop.style.top = `${r.bottom + 4}px`;
+            pop.style.maxHeight = `${Math.min(420, below)}px`;
+        } else {
+            pop.style.bottom = `${window.innerHeight - r.top + 4}px`;
+            pop.style.maxHeight = `${Math.min(420, r.top - 12)}px`;
+        }
+        fontPopover = pop;
+        fontPickerBtn.setAttribute("aria-expanded", "true");
+        const sel = list.querySelector(".font-option.selected");
+        if (sel) sel.scrollIntoView({ block: "center" });
+        search.focus();
+
+        // Load each family's regular cut so the list can preview it (only the first time).
+        if (!fontPreviewsLoaded) {
+            fontPreviewsLoaded = true;
+            FONT_CATALOG.filter(f => f.files).forEach(f => ensureFontLoaded({ fontFamily: f.key }));
+        }
+    }
+
+    function chooseFont(key) {
+        closeFontPicker();
+        if (textFontSelect.value !== key) {
+            textFontSelect.value = key;
+            textFontSelect.dispatchEvent(new Event("change"));
+        }
+        fontPickerBtn.focus();
+    }
+
+    if (fontPickerBtn) {
+        fontPickerBtn.addEventListener("click", () => fontPopover ? closeFontPicker() : openFontPicker());
+        window.addEventListener("mousedown", (e) => {
+            if (fontPopover && !fontPopover.contains(e.target) && !fontPickerBtn.contains(e.target)) closeFontPicker();
+        });
+        window.addEventListener("resize", closeFontPicker);
+    }
+
+    // --- Color picker (replaces the OS picker: saturation/value square, hue, hex, eyedropper) ---
+    const colorMath = {
+        hexToRgb(hex) {
+            let h = String(hex || "").trim().replace(/^#/, "");
+            if (/^[0-9a-f]{3}$/i.test(h)) h = h.split("").map(c => c + c).join("");
+            if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+            const n = parseInt(h, 16);
+            return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+        },
+        rgbToHex({ r, g, b }) {
+            return "#" + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, "0")).join("");
+        },
+        rgbToHsv({ r, g, b }) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+            let h = 0;
+            if (d) {
+                if (max === r) h = ((g - b) / d) % 6;
+                else if (max === g) h = (b - r) / d + 2;
+                else h = (r - g) / d + 4;
+                h = (h * 60 + 360) % 360;
+            }
+            return { h, s: max ? d / max : 0, v: max };
+        },
+        hsvToRgb({ h, s, v }) {
+            const f = (n) => {
+                const k = (n + h / 60) % 6;
+                return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+            };
+            return { r: f(5) * 255, g: f(3) * 255, b: f(1) * 255 };
+        }
+    };
+
+    const COLOR_PRESETS = ["#000000", "#434343", "#999999", "#ffffff", "#003366", "#0066cc", "#0d99ff", "#14ae5c",
+                           "#cc0000", "#f24822", "#ffa629", "#9747ff"];
+    let colorPopover = null;
+
+    function closeColorPicker() {
+        if (!colorPopover) return;
+        colorPopover.remove();
+        colorPopover = null;
+        if (textColorSwatch) textColorSwatch.setAttribute("aria-expanded", "false");
+    }
+
+    function openColorPicker() {
+        closeColorPicker();
+        let hsv = colorMath.rgbToHsv(colorMath.hexToRgb(textColorInput.value) || { r: 0, g: 0, b: 0 });
+
+        const pop = document.createElement("div");
+        pop.className = "color-popover";
+        pop.setAttribute("role", "dialog");
+        pop.setAttribute("aria-label", "Text color");
+        pop.innerHTML = `
+            <div class="cp-sv" tabindex="0" aria-label="Saturation and brightness"><div class="cp-sv-thumb"></div></div>
+            <div class="cp-row">
+                ${"EyeDropper" in window ? `<button type="button" class="cp-eyedrop icon-btn" title="Pick a color from the screen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3z"/></svg>
+                </button>` : ""}
+                <div class="cp-hue" tabindex="0" aria-label="Hue"><div class="cp-hue-thumb"></div></div>
+            </div>
+            <div class="cp-row">
+                <span class="cp-preview"></span>
+                <label class="cp-hex-field"><span>#</span><input type="text" class="cp-hex" maxlength="7" spellcheck="false" aria-label="Hex color"></label>
+            </div>
+            <div class="cp-swatches">${COLOR_PRESETS.map(c => `<button type="button" class="cp-swatch" data-color="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>`;
+
+        const sv = pop.querySelector(".cp-sv");
+        const svThumb = pop.querySelector(".cp-sv-thumb");
+        const hue = pop.querySelector(".cp-hue");
+        const hueThumb = pop.querySelector(".cp-hue-thumb");
+        const preview = pop.querySelector(".cp-preview");
+        const hexInput = pop.querySelector(".cp-hex");
+
+        const currentHex = () => colorMath.rgbToHex(colorMath.hsvToRgb(hsv));
+
+        function render(updateHexField = true) {
+            const hex = currentHex();
+            sv.style.background = `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent), hsl(${hsv.h}, 100%, 50%)`;
+            svThumb.style.left = `${hsv.s * 100}%`;
+            svThumb.style.top = `${(1 - hsv.v) * 100}%`;
+            svThumb.style.background = hex;
+            hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
+            hueThumb.style.background = `hsl(${hsv.h}, 100%, 50%)`;
+            preview.style.background = hex;
+            if (updateHexField) hexInput.value = hex.slice(1).toUpperCase();
+        }
+
+        // input = live preview while dragging; change = one undo step when the gesture ends
+        function emit(type) {
+            textColorInput.value = currentHex();
+            setColorSwatch(textColorInput.value);
+            textColorInput.dispatchEvent(new Event(type));
+        }
+
+        function dragOn(el, onMove) {
+            el.addEventListener("pointerdown", (e) => {
+                el.setPointerCapture(e.pointerId);
+                const move = (ev) => { const r = el.getBoundingClientRect(); onMove(ev, r); render(); emit("input"); };
+                move(e);
+                const up = () => {
+                    el.removeEventListener("pointermove", move);
+                    el.removeEventListener("pointerup", up);
+                    el.removeEventListener("pointercancel", up);
+                    emit("change");
+                };
+                el.addEventListener("pointermove", move);
+                el.addEventListener("pointerup", up);
+                el.addEventListener("pointercancel", up);
+                e.preventDefault();
+            });
+        }
+
+        const clamp01 = (v) => Math.max(0, Math.min(1, v));
+        dragOn(sv, (e, r) => {
+            hsv.s = clamp01((e.clientX - r.left) / r.width);
+            hsv.v = 1 - clamp01((e.clientY - r.top) / r.height);
+        });
+        dragOn(hue, (e, r) => { hsv.h = clamp01((e.clientX - r.left) / r.width) * 359.9; });
+
+        // Arrow keys nudge the square / hue for keyboard users.
+        sv.addEventListener("keydown", (e) => {
+            const step = e.shiftKey ? 0.1 : 0.02;
+            const moves = { ArrowLeft: ["s", -step], ArrowRight: ["s", step], ArrowUp: ["v", step], ArrowDown: ["v", -step] };
+            if (!moves[e.key]) return;
+            e.preventDefault();
+            const [k, d] = moves[e.key];
+            hsv[k] = clamp01(hsv[k] + d);
+            render(); emit("input"); emit("change");
+        });
+        hue.addEventListener("keydown", (e) => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            hsv.h = (hsv.h + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 10 : 2) + 360) % 360;
+            render(); emit("input"); emit("change");
+        });
+
+        const applyHex = () => {
+            const rgb = colorMath.hexToRgb(hexInput.value);
+            if (!rgb) { render(); return; } // invalid: snap back to the current color
+            hsv = colorMath.rgbToHsv(rgb);
+            render(); emit("input"); emit("change");
+        };
+        hexInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); applyHex(); }
+            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); textColorSwatch.focus(); }
+        });
+        hexInput.addEventListener("blur", applyHex);
+
+        pop.querySelectorAll(".cp-swatch").forEach(btn => btn.addEventListener("click", () => {
+            hsv = colorMath.rgbToHsv(colorMath.hexToRgb(btn.dataset.color));
+            render(); emit("input"); emit("change");
+        }));
+
+        const eyedrop = pop.querySelector(".cp-eyedrop");
+        if (eyedrop) eyedrop.addEventListener("click", async () => {
+            try {
+                const result = await new window.EyeDropper().open();
+                const rgb = colorMath.hexToRgb(result.sRGBHex);
+                if (rgb) { hsv = colorMath.rgbToHsv(rgb); render(); emit("input"); emit("change"); }
+            } catch (err) { /* cancelled */ }
+        });
+
+        pop.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); textColorSwatch.focus(); }
+        });
+
+        document.body.appendChild(pop);
+        const r = textColorSwatch.getBoundingClientRect();
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        // Open to the left of the properties panel so it doesn't cover the controls.
+        let left = r.right - pw;
+        let top = r.bottom + 6;
+        if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+        pop.style.left = `${Math.max(8, Math.min(left, window.innerWidth - pw - 8))}px`;
+        pop.style.top = `${top}px`;
+        colorPopover = pop;
+        textColorSwatch.setAttribute("aria-expanded", "true");
+        render();
+        sv.focus();
+    }
+
+    if (textColorSwatch) {
+        textColorSwatch.addEventListener("click", () => colorPopover ? closeColorPicker() : openColorPicker());
+        window.addEventListener("mousedown", (e) => {
+            if (colorPopover && !colorPopover.contains(e.target) && !textColorSwatch.contains(e.target)) closeColorPicker();
+        });
+        window.addEventListener("resize", closeColorPicker);
+        setColorSwatch(textColorInput.value);
+    }
+
+    // The pickers edit the selected box; close them when the selection goes away.
+    store.subscribe("signatures:doc_updated", () => {
+        if (!getSelectedTextItem()) { closeFontPicker(); closeColorPicker(); }
+    });
 
     // --- Action Processing ---
     processActionBtn.addEventListener("click", () => {
@@ -2262,6 +2671,53 @@ document.addEventListener("DOMContentLoaded", () => {
         return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
     }
 
+    // --- Bottom Tool Bar ---
+    const toolMoveBtn = document.getElementById("toolMoveBtn");
+    const toolStampBtn = document.getElementById("toolStampBtn");
+    const toolNewSigBtn = document.getElementById("toolNewSigBtn");
+    const toolPreviewBtn = document.getElementById("toolPreviewBtn");
+
+    function syncToolbar() {
+        if (toolMoveBtn) toolMoveBtn.classList.toggle("active", !isPanModeActive && !isStampModeActive);
+        if (toolStampBtn) toolStampBtn.classList.toggle("active", isStampModeActive);
+    }
+
+    function selectMoveTool() {
+        if (isPanModeActive) setPanMode(false);
+        if (isStampModeActive) setStampMode(false);
+        syncToolbar();
+    }
+
+    // Stamp the active signature (or the first saved one); with none saved, open the studio.
+    function selectStampTool() {
+        const saved = store.state.signature.savedSignatures || [];
+        const active = store.state.signature.activeDataUrl;
+        if (!saved.length && !active) {
+            if (openSigStudioBtn) openSigStudioBtn.click();
+            return;
+        }
+        if (!active) store.setActiveSignature(saved[0].dataUrl);
+        if (isPanModeActive) setPanMode(false);
+        setStampMode(true);
+    }
+
+    if (toolMoveBtn) toolMoveBtn.addEventListener("click", selectMoveTool);
+    if (toolStampBtn) toolStampBtn.addEventListener("click", () => isStampModeActive ? selectMoveTool() : selectStampTool());
+    if (toolNewSigBtn) toolNewSigBtn.addEventListener("click", () => openSigStudioBtn && openSigStudioBtn.click());
+    if (toolPreviewBtn) toolPreviewBtn.addEventListener("click", () => openFullPreviewBtn && openFullPreviewBtn.click());
+
+    // Figma-style single-key tool shortcuts.
+    window.addEventListener("keydown", (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+        if (isTypingTarget(document.activeElement)) return;
+        if (sigStudioModal && !sigStudioModal.classList.contains("hidden")) return;
+        const key = e.key.toLowerCase();
+        if (key === "v") selectMoveTool();
+        else if (key === "h") setPanMode(!isPanModeActive);
+        else if (key === "t" && store.state.currentMode === "sign") { e.preventDefault(); addTextBtn && addTextBtn.click(); }
+        else if (key === "s" && store.state.currentMode === "sign") selectStampTool();
+    });
+
     function setPanMode(active) {
         isPanModeActive = active;
         if (togglePanToolBtn) {
@@ -2273,6 +2729,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (active && isStampModeActive) {
             setStampMode(false);
         }
+        syncToolbar();
     }
 
     if (togglePanToolBtn) {
@@ -2417,6 +2874,69 @@ document.addEventListener("DOMContentLoaded", () => {
     if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => setStageZoom(zoomLevel - 0.15));
     if (zoomInBtn) zoomInBtn.addEventListener("click", () => setStageZoom(zoomLevel + 0.15));
     if (zoomResetBtn) zoomResetBtn.addEventListener("click", resetStageView);
+
+    // Zoom dropdown in the properties header.
+    const zoomMenuBtn = document.getElementById("zoomMenuBtn");
+    const zoomMenu = document.getElementById("zoomMenu");
+    function setZoomMenuOpen(open) {
+        if (!zoomMenu) return;
+        zoomMenu.classList.toggle("hidden", !open);
+        zoomMenuBtn.setAttribute("aria-expanded", String(open));
+    }
+    if (zoomMenuBtn && zoomMenu) {
+        zoomMenuBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setZoomMenuOpen(zoomMenu.classList.contains("hidden"));
+        });
+        zoomMenu.addEventListener("click", () => setZoomMenuOpen(false));
+        window.addEventListener("mousedown", (e) => {
+            if (!zoomMenu.contains(e.target) && !zoomMenuBtn.contains(e.target)) setZoomMenuOpen(false);
+        });
+    }
+
+    // ⌘+ / ⌘− zoom the canvas (not the browser page); ⇧0 resets the view.
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setZoomMenuOpen(false);
+        if (isTypingTarget(document.activeElement)) return;
+        if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
+            e.preventDefault();
+            setStageZoom(zoomLevel + 0.15);
+        } else if ((e.metaKey || e.ctrlKey) && (e.key === "-" || e.key === "_")) {
+            e.preventDefault();
+            setStageZoom(zoomLevel - 0.15);
+        } else if (e.shiftKey && e.code === "Digit0" && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            resetStageView();
+        }
+    });
+
+    // Open a PDF from the empty canvas, or by dropping it anywhere on the canvas.
+    const emptyOpenBtn = document.getElementById("emptyOpenBtn");
+    if (emptyOpenBtn) emptyOpenBtn.addEventListener("click", () => pdfFileInput.click());
+    if (stageViewport) {
+        const isFileDrag = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+        stageViewport.addEventListener("dragover", (e) => {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            stageViewport.classList.add("file-dragover");
+        });
+        stageViewport.addEventListener("dragleave", (e) => {
+            if (!stageViewport.contains(e.relatedTarget)) stageViewport.classList.remove("file-dragover");
+        });
+        stageViewport.addEventListener("drop", (e) => {
+            stageViewport.classList.remove("file-dragover");
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const file = Array.from(e.dataTransfer.files).find(f => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+            if (!file) {
+                showStatus("That isn't a PDF. Drop a .pdf file to open it.", "error");
+                return;
+            }
+            if (store.state.currentMode === "merge") store.setMode("sign");
+            handleFileUpload(file);
+        }, true);
+    }
     store.subscribe("document:loaded", resetStageView);
 
     // Global interception: Prevent browser page zooming, route pinch/ctrl-wheel to stage canvas zoom (Figma style)
@@ -2521,10 +3041,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (previewSaveBtn) previewSaveBtn.addEventListener("click", triggerSaveFromPreview);
     if (previewSaveFooterBtn) previewSaveFooterBtn.addEventListener("click", triggerSaveFromPreview);
 
+    // Floating toast above the tool bar. Errors and info fade on their own; success messages
+    // (which can carry a download link) stay until clicked away.
+    let statusHideTimer = null;
+    statusAlert.addEventListener("click", (e) => {
+        if (!e.target.closest("a")) statusAlert.classList.add("hidden");
+    });
+
     function showStatus(msg, type = "error", isHtml = false) {
+        clearTimeout(statusHideTimer);
         if (!msg) {
             statusAlert.classList.add("hidden");
             return;
+        }
+        if (type !== "success") {
+            statusHideTimer = setTimeout(() => statusAlert.classList.add("hidden"), 6000);
         }
         if (isHtml) {
             statusAlert.innerHTML = msg;

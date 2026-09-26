@@ -9,7 +9,7 @@ from pypdf import PdfReader
 
 import fitz  # PyMuPDF for rendering page preview images
 
-from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs, text_font_coverage
+from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs, all_text_font_coverage, text_font_catalog
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
@@ -66,7 +66,7 @@ def sanitize_output_filename(default_name, custom_name=None):
 
 @app.route("/")
 def index():
-    return render_template("index.html", montserrat_coverage=text_font_coverage())
+    return render_template("index.html", font_catalog=text_font_catalog(), font_coverage=all_text_font_coverage())
 
 def _safe_join(directory, filename):
     """

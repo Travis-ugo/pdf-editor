@@ -4,7 +4,8 @@ import tempfile
 
 import fitz
 from pypdf import PdfReader, PdfWriter
-from pdf_duplicator.core import add_signature_to_pdf, text_font_coverage, TEXT_BASELINE
+from pdf_duplicator.core import (add_signature_to_pdf, text_font_coverage, text_font_catalog,
+                                 EMBEDDED_FONTS, FONTS_DIR, TEXT_BASELINE)
 
 
 class TestTextOverlay(unittest.TestCase):
@@ -130,6 +131,39 @@ class TestTextOverlay(unittest.TestCase):
         self.assertTrue(covered(ord("A")) and covered(ord("\u00e9")) and covered(ord("\u0416")) and covered(ord("\u20ac")))
         self.assertFalse(covered(0x4e2d))
         self.assertTrue(all(lo <= hi for lo, hi in ranges))
+
+    def test_every_catalog_font_embeds_and_draws(self):
+        catalog = text_font_catalog()
+        self.assertGreaterEqual(len(catalog), 20)
+        for font in catalog:
+            with self.subTest(font=font["key"]):
+                self._add([{"type": "text", "text": "Sample 123", "x": 40, "y": 40, "font_size": 18,
+                            "font_family": font["key"], "pages_spec": "1"}])
+                self.assertIn("Sample 123", self._page_text(0))
+
+    def test_poppins_is_embedded(self):
+        self._add([{"type": "text", "text": "Poppins", "x": 40, "y": 40, "font_size": 20,
+                    "font_family": "poppins", "bold": True, "pages_spec": "1"}])
+        fonts = fitz.open(self.output_pdf)[0].get_fonts()
+        self.assertTrue(any("Poppins-Bold" in f[3] and f[1] == "ttf" for f in fonts))
+
+    def test_missing_cut_falls_back_to_nearest(self):
+        # Great Vibes has no bold/italic cut: it draws with the regular one instead of failing.
+        self.assertNotIn((True, True), EMBEDDED_FONTS["greatvibes"]["files"])
+        self._add([{"type": "text", "text": "Script", "x": 40, "y": 40, "font_size": 20,
+                    "font_family": "greatvibes", "bold": True, "italic": True, "pages_spec": "1"}])
+        fonts = fitz.open(self.output_pdf)[0].get_fonts()
+        self.assertTrue(any("GreatVibes-Regular" in f[3] for f in fonts))
+
+    def test_catalog_files_exist_and_flags_match(self):
+        for font in text_font_catalog():
+            if font["files"] is None:
+                continue
+            with self.subTest(font=font["key"]):
+                for name in font["files"].values():
+                    self.assertTrue(os.path.isfile(os.path.join(FONTS_DIR, name + ".ttf")), name)
+                self.assertEqual(font["bold"], "bold-normal" in font["files"])
+                self.assertEqual(font["italic"], "normal-italic" in font["files"])
 
     def test_blank_text_draws_nothing(self):
         self._add([{"type": "text", "text": "   ", "x": 40, "y": 40, "pages_spec": "1"}])

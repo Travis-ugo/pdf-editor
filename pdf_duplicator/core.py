@@ -1,3 +1,4 @@
+import functools
 import os
 
 from pypdf import PdfReader, PdfWriter
@@ -220,26 +221,73 @@ TEXT_FONTS = {
     ("courier", True, True): "Courier-BoldOblique",
 }
 
-# Montserrat ships with the app and is embedded (subset) into the PDF, so it also covers
-# far more characters than the built-in fonts. Same files the web UI loads for the stage.
+# Fonts that ship with the app (static/fonts, all SIL Open Font License -- see static/fonts/licenses)
+# and are embedded (subset) into the PDF. They cover far more characters than the built-in fonts.
+# The web UI loads the same files for the stage, so the preview and the export match.
+# "files" maps (bold, italic) -> TTF basename; a family may lack some cuts (e.g. script fonts).
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fonts")
-MONTSERRAT_FILES = {
-    (False, False): "Montserrat-Regular",
-    (True, False): "Montserrat-Bold",
-    (False, True): "Montserrat-Italic",
-    (True, True): "Montserrat-BoldItalic",
+EMBEDDED_FONTS = {
+    "dmsans": {"label": "DM Sans", "category": "sans", "files": {(False, False): "DMSans-Regular", (True, False): "DMSans-Bold", (False, True): "DMSans-Italic", (True, True): "DMSans-BoldItalic"}},
+    "didactgothic": {"label": "Didact Gothic", "category": "sans", "files": {(False, False): "DidactGothic-Regular"}},
+    "josefinsans": {"label": "Josefin Sans", "category": "sans", "files": {(False, False): "JosefinSans-Regular", (True, False): "JosefinSans-Bold", (False, True): "JosefinSans-Italic", (True, True): "JosefinSans-BoldItalic"}},
+    "jost": {"label": "Jost", "category": "sans", "files": {(False, False): "Jost-Regular", (True, False): "Jost-Bold", (False, True): "Jost-Italic", (True, True): "Jost-BoldItalic"}},
+    "lato": {"label": "Lato", "category": "sans", "files": {(False, False): "Lato-Regular", (True, False): "Lato-Bold", (False, True): "Lato-Italic", (True, True): "Lato-BoldItalic"}},
+    "montserrat": {"label": "Montserrat", "category": "sans", "files": {(False, False): "Montserrat-Regular", (True, False): "Montserrat-Bold", (False, True): "Montserrat-Italic", (True, True): "Montserrat-BoldItalic"}},
+    "nunito": {"label": "Nunito", "category": "sans", "files": {(False, False): "Nunito-Regular", (True, False): "Nunito-Bold", (False, True): "Nunito-Italic", (True, True): "Nunito-BoldItalic"}},
+    "opensans": {"label": "Open Sans", "category": "sans", "files": {(False, False): "OpenSans-Regular", (True, False): "OpenSans-Bold", (False, True): "OpenSans-Italic", (True, True): "OpenSans-BoldItalic"}},
+    "poppins": {"label": "Poppins", "category": "sans", "files": {(False, False): "Poppins-Regular", (True, False): "Poppins-Bold", (False, True): "Poppins-Italic", (True, True): "Poppins-BoldItalic"}},
+    "raleway": {"label": "Raleway", "category": "sans", "files": {(False, False): "Raleway-Regular", (True, False): "Raleway-Bold", (False, True): "Raleway-Italic", (True, True): "Raleway-BoldItalic"}},
+    "roboto": {"label": "Roboto", "category": "sans", "files": {(False, False): "Roboto-Regular", (True, False): "Roboto-Bold", (False, True): "Roboto-Italic", (True, True): "Roboto-BoldItalic"}},
+    "cormorantgaramond": {"label": "Cormorant Garamond", "category": "serif", "files": {(False, False): "CormorantGaramond-Regular", (True, False): "CormorantGaramond-Bold", (False, True): "CormorantGaramond-Italic", (True, True): "CormorantGaramond-BoldItalic"}},
+    "ebgaramond": {"label": "EB Garamond", "category": "serif", "files": {(False, False): "EBGaramond-Regular", (True, False): "EBGaramond-Bold", (False, True): "EBGaramond-Italic", (True, True): "EBGaramond-BoldItalic"}},
+    "lora": {"label": "Lora", "category": "serif", "files": {(False, False): "Lora-Regular", (True, False): "Lora-Bold", (False, True): "Lora-Italic", (True, True): "Lora-BoldItalic"}},
+    "merriweather": {"label": "Merriweather", "category": "serif", "files": {(False, False): "Merriweather-Regular", (True, False): "Merriweather-Bold", (False, True): "Merriweather-Italic", (True, True): "Merriweather-BoldItalic"}},
+    "playfairdisplay": {"label": "Playfair Display", "category": "serif", "files": {(False, False): "PlayfairDisplay-Regular", (True, False): "PlayfairDisplay-Bold", (False, True): "PlayfairDisplay-Italic", (True, True): "PlayfairDisplay-BoldItalic"}},
+    "caveat": {"label": "Caveat", "category": "script", "files": {(False, False): "Caveat-Regular", (True, False): "Caveat-Bold"}},
+    "dancingscript": {"label": "Dancing Script", "category": "script", "files": {(False, False): "DancingScript-Regular", (True, False): "DancingScript-Bold"}},
+    "greatvibes": {"label": "Great Vibes", "category": "script", "files": {(False, False): "GreatVibes-Regular"}},
+    "pacifico": {"label": "Pacifico", "category": "script", "files": {(False, False): "Pacifico-Regular"}},
 }
 
+# Built-in PDF fonts, shown first in the font list.
+STANDARD_FONT_LABELS = {"helvetica": "Helvetica", "times": "Times", "courier": "Courier"}
 
-def _montserrat_font(bold, italic):
-    """Registers (once) and returns the reportlab font name for a Montserrat variant."""
+
+def _embedded_font(family, bold, italic):
+    """
+    Registers (once) and returns the reportlab font name for an embedded family's cut. A missing
+    cut falls back to the nearest one the family has, the same way the web UI draws it.
+    """
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    name = MONTSERRAT_FILES[(bool(bold), bool(italic))]
+    files = EMBEDDED_FONTS[family]["files"]
+    key = (bool(bold), bool(italic))
+    for candidate in (key, (key[0], False), (False, key[1]), (False, False)):
+        if candidate in files:
+            name = files[candidate]
+            break
     if name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(name, os.path.join(FONTS_DIR, name + ".ttf")))
     return name
+
+
+def text_font_catalog():
+    """Font list for the web UI: [{key, label, category, bold, italic, files}], in display order."""
+    catalog = [{"key": k, "label": v, "category": "standard", "bold": True, "italic": True, "files": None}
+               for k, v in STANDARD_FONT_LABELS.items()]
+    for key, info in EMBEDDED_FONTS.items():
+        files = info["files"]
+        catalog.append({
+            "key": key,
+            "label": info["label"],
+            "category": info["category"],
+            "bold": (True, False) in files,
+            "italic": (False, True) in files,
+            "files": {("bold" if b else "normal") + "-" + ("italic" if i else "normal"): name
+                      for (b, i), name in files.items()},
+        })
+    return catalog
 
 
 def _supported_codepoints(font_name):
@@ -251,12 +299,9 @@ def _supported_codepoints(font_name):
     return set(charmap) if charmap else None
 
 
-def text_font_coverage():
-    """
-    Code point ranges Montserrat can draw, as [[lo, hi], ...]. The web UI uses this to warn about
-    characters that would be replaced with '?' when the PDF is written.
-    """
-    codepoints = sorted(c for c in _supported_codepoints(_montserrat_font(False, False)) if c >= 0x20)
+@functools.lru_cache(maxsize=None)
+def _coverage_ranges(font_name):
+    codepoints = sorted(c for c in _supported_codepoints(font_name) if c >= 0x20)
     ranges = []
     for cp in codepoints:
         if ranges and cp == ranges[-1][1] + 1:
@@ -264,6 +309,19 @@ def text_font_coverage():
         else:
             ranges.append([cp, cp])
     return ranges
+
+
+def text_font_coverage(family="montserrat"):
+    """
+    Code point ranges an embedded family can draw, as [[lo, hi], ...]. The web UI uses this to warn
+    about characters that would be replaced with '?' when the PDF is written.
+    """
+    return [list(r) for r in _coverage_ranges(_embedded_font(family, False, False))]
+
+
+def all_text_font_coverage():
+    """{family: ranges} for every embedded family (the built-in fonts are Windows-1252)."""
+    return {family: text_font_coverage(family) for family in EMBEDDED_FONTS}
 
 
 def _process_text_item(item):
@@ -281,15 +339,15 @@ def _process_text_item(item):
     family = str(item.get("font_family") or "helvetica").lower()
     bold = bool(item.get("bold"))
     italic = bool(item.get("italic"))
-    if family == "montserrat":
-        font_name = _montserrat_font(bold, italic)
+    if family in EMBEDDED_FONTS:
+        font_name = _embedded_font(family, bold, italic)
     else:
         font_name = TEXT_FONTS.get((family, bold, italic))
     if font_name is None:
         raise ValueError(f"Unsupported font family: {family}")
 
     # Swap anything the font can't draw for '?' instead of emitting missing-glyph boxes.
-    # The built-in PDF fonts only cover Windows-1252; Montserrat has its own character map.
+    # The built-in PDF fonts only cover Windows-1252; embedded fonts have their own character maps.
     supported = _supported_codepoints(font_name)
     if supported is None:
         text = text.encode("cp1252", errors="replace").decode("cp1252")
@@ -362,7 +420,7 @@ def add_signature_to_pdf(
     :param signatures: Optional list of signature dict items for multi-signature placement:
                        [{ 'signature_img': ..., 'pages_spec': ..., 'x': ..., 'y': ..., 'width': ..., 'height': ..., 'rotation': ..., 'y_from_top': ... }]
                        An item with 'type': 'text' draws text instead of an image and takes
-                       'text', 'font_family' (helvetica | times | courier | montserrat), 'font_size' (points),
+                       'text', 'font_family' (helvetica | times | courier | a key of EMBEDDED_FONTS), 'font_size' (points),
                        'bold', 'italic' and 'color' (hex) in place of 'signature_img'.
     :param rotation: Rotation angle in degrees clockwise (0 to 360)
     """
