@@ -1093,6 +1093,12 @@ document.addEventListener("DOMContentLoaded", () => {
         overlay.addEventListener("mousedown", (e) => {
             selectedSigId = sig.id;
             syncInspectorInputs(sig);
+            // preventDefault() below stops the click from moving focus, so drop focus from any
+            // sidebar field explicitly -- otherwise Delete/Backspace would edit that field
+            // instead of removing the selected item.
+            if (document.activeElement && document.activeElement !== document.body) {
+                document.activeElement.blur();
+            }
 
             // Only a primary-button press moves/resizes/rotates; right-click opens the item menu
             // and middle-click falls through to the stage's pan handler.
@@ -1286,8 +1292,14 @@ document.addEventListener("DOMContentLoaded", () => {
             window.removeEventListener("mouseup", onMouseUp);
         };
 
-        window.addEventListener("mousemove", onMouseMove);
-        window.addEventListener("mouseup", onMouseUp);
+        // Listen for the rest of the gesture only once it has started on this overlay. (These
+        // used to be attached once at creation, so the first unrelated mouseup anywhere -- e.g.
+        // a click or pan on the page -- removed them and left the item undraggable.)
+        overlay.addEventListener("mousedown", () => {
+            if (!isDragging && !isResizing && !isRotating) return;
+            window.addEventListener("mousemove", onMouseMove);
+            window.addEventListener("mouseup", onMouseUp);
+        });
     }
 
     // --- Inspector Inputs & Handlers ---
