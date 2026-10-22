@@ -64,6 +64,23 @@ def sanitize_output_filename(default_name, custom_name=None):
 
 
 
+def render_page_preview(page, zoom, max_side):
+    """
+    Renders a page to a base64 PNG data URL at `zoom`, scaled down if needed so the longest side
+    is at most `max_side` pixels. Oversized pages (e.g. scans saved at 1pt per pixel, ~27x38in)
+    would otherwise produce 20+ megapixel images that take seconds each to PNG-encode and
+    hundreds of MB to send to the browser. Previews only -- the output PDF is never rasterized.
+    Pages without text (scans/photos) are sent as high-quality JPEG, which encodes ~3x faster and
+    ~5x smaller than PNG for photographic content; text pages stay PNG so lettering stays crisp.
+    """
+    rect = page.rect
+    zoom = min(zoom, max_side / max(rect.width, rect.height, 1))
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+    if page.get_text().strip():
+        return "data:image/png;base64," + base64.b64encode(pix.tobytes("png")).decode("utf-8")
+    return "data:image/jpeg;base64," + base64.b64encode(pix.tobytes("jpeg", jpg_quality=92)).decode("utf-8")
+
+
 @app.route("/")
 def index():
     return render_template("index.html", font_catalog=text_font_catalog(), font_coverage=all_text_font_coverage())
@@ -136,10 +153,7 @@ def inspect_pdf():
             # Render page to image. This is also the background the editor draws signatures/text
             # onto, so it needs to stay sharp on HiDPI (Retina) screens: zoom 2.0 renders at "@2x"
             # density, matching typical Retina device-pixel ratio.
-            pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
-            img_bytes = pix.tobytes("png")
-            b64_img = "data:image/png;base64," + base64.b64encode(img_bytes).decode("utf-8")
-            page_previews.append(b64_img)
+            page_previews.append(render_page_preview(page, 2.0, 2400))
 
         doc.close()
 
@@ -210,10 +224,7 @@ def preview_pdf():
             page = doc.load_page(pno)
             # This is the "what you'll actually download" preview, rendered once on demand, so it's
             # worth the extra render time to render it at higher density ("@3x") than the live editor.
-            pix = page.get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
-            img_bytes = pix.tobytes("png")
-            b64_img = "data:image/png;base64," + base64.b64encode(img_bytes).decode("utf-8")
-            page_previews.append(b64_img)
+            page_previews.append(render_page_preview(page, 3.0, 3200))
 
         doc.close()
         if os.path.exists(preview_output_path):

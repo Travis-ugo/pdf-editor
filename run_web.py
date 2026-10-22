@@ -21,6 +21,3 @@ if __name__ == "__main__":
         print(f"Launching PDF Duplicator Apple HIG Web UI on http://127.0.0.1:{port} ...")
 
     run_server(host="127.0.0.1", port=port, debug=True)
-
-
-
