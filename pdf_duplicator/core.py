@@ -471,6 +471,25 @@ def _draw_ink_item(can, sig):
     can.drawPath(path, stroke=1, fill=0)
 
 
+def _visible_page_space(page):
+    """
+    Returns (width, height, matrix) for the page as a viewer displays it: its crop box, turned by
+    /Rotate. width/height are the displayed size; matrix (a, b, c, d, e, f) maps displayed
+    coordinates (origin bottom-left, y up) to the page's user space.
+    """
+    box = page.cropbox
+    x0, y0 = float(box.left), float(box.bottom)
+    w, h = float(box.width), float(box.height)
+    rotation = int(page.rotation or 0) % 360  # includes /Rotate inherited from the page tree
+    if rotation == 90:
+        return h, w, (0, 1, -1, 0, x0 + w, y0)
+    if rotation == 180:
+        return w, h, (-1, 0, 0, -1, x0 + w, y0 + h)
+    if rotation == 270:
+        return h, w, (0, -1, 1, 0, x0, y0 + h)
+    return w, h, (1, 0, 0, 1, x0, y0)
+
+
 def add_signature_to_pdf(
     input_path,
     output_path,
@@ -584,15 +603,18 @@ def add_signature_to_pdf(
     writer = PdfWriter()
 
     for idx, page in enumerate(reader.pages):
-        page_width = float(page.mediabox.width)
-        page_height = float(page.mediabox.height)
-
         matching_sigs = [s for s in processed_sigs if idx in s["target_indices"]]
         matching_sigs.sort(key=lambda s: s["z_index"])
 
         if matching_sigs:
+            # Items are placed on the page as it is displayed (what the web UI shows), so their
+            # coordinates are in the visible box. page_width/page_height are that box's size.
+            page_width, page_height, matrix = _visible_page_space(page)
             packet = io.BytesIO()
-            can = canvas.Canvas(packet, pagesize=(page_width, page_height))
+            # The overlay's own page size doesn't clip anything once merged; the matrix maps the
+            # visible box onto the page's user space (crop box origin and /Rotate).
+            can = canvas.Canvas(packet, pagesize=(float(page.mediabox.right), float(page.mediabox.top)))
+            can.transform(*matrix)
             for sig in matching_sigs:
                 pdf_y = page_height - sig["y"] - sig["height"] if sig["y_from_top"] else sig["y"]
                 rot = float(sig.get("rotation", 0) or 0) % 360

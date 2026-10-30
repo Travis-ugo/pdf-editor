@@ -217,6 +217,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (documentUploadCard) documentUploadCard.classList.remove("hidden");
 
+        // Merge mode borrows the stage for its queue; every other mode shows the open document.
+        if (mode !== "merge") restoreDocumentStage();
+
         if (mode === "sign") {
             signControlsCard.classList.remove("hidden");
             if (textControlsCard) textControlsCard.classList.remove("hidden");
@@ -519,6 +522,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
+    function restoreDocumentStage() {
+        const doc = store.state.document;
+        if (doc.totalPages) {
+            renderStagePage(doc.currentPage || 1);  // page:changed redraws the page, counts and thumbnails
+        } else {
+            emptyStageNotice.classList.remove("hidden");
+            pdfCanvasContainer.classList.add("hidden");
+            thumbnailRibbon.classList.add("hidden");
+            currentPageNumEl.textContent = "1";
+            totalPagesNumEl.textContent = "1";
+        }
+    }
+
     function updateMergedStagePreview(files) {
         if (store.state.currentMode !== "merge") return;
         if (!files || files.length === 0) {
@@ -589,28 +605,76 @@ document.addEventListener("DOMContentLoaded", () => {
         pdfCanvasContainer.classList.remove("hidden");
         thumbnailRibbon.classList.remove("hidden");
 
-        pdfPageImg.src = doc.pagePreviews[pageNum - 1];
         pdfPageImg.onload = () => {
             renderStageSignatures();
         };
+        loadPagePreview(pageNum).then(src => {
+            // Ignore a slow response for a page the user has already left
+            if (src && store.state.document.currentPage === pageNum) pdfPageImg.src = src;
+        });
 
         document.querySelectorAll(".thumb-card").forEach((card, idx) => {
             card.classList.toggle("active", idx === pageNum - 1);
         });
     });
 
+    // Only the first pages arrive with the upload; the rest are rendered on demand and cached.
+    const pagePreviewRequests = new Map();
+    function loadPagePreview(pageNum) {
+        const doc = store.state.document;
+        if (doc.pagePreviews[pageNum - 1]) return Promise.resolve(doc.pagePreviews[pageNum - 1]);
+        const key = `${doc.fileId}:${pageNum}`;
+        if (pagePreviewRequests.has(key)) return pagePreviewRequests.get(key);
+
+        const formData = new FormData();
+        formData.append("file_id", doc.fileId);
+        formData.append("page", pageNum);
+        if (pdfPasswordInput.value) formData.append("password", pdfPasswordInput.value);
+        const request = fetch("/api/page-preview", { method: "POST", body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                // The document may have been closed or replaced meanwhile
+                if (store.state.document.fileId === doc.fileId) store.state.document.pagePreviews[pageNum - 1] = data.preview;
+                return data.preview;
+            })
+            .catch(err => {
+                showStatus(`Couldn't load page ${pageNum}: ${err.message}`, "error");
+                return null;
+            })
+            .finally(() => pagePreviewRequests.delete(key));
+        pagePreviewRequests.set(key, request);
+        return request;
+    }
+
     prevPageBtn.addEventListener("click", () => renderStagePage(store.state.document.currentPage - 1));
     nextPageBtn.addEventListener("click", () => renderStagePage(store.state.document.currentPage + 1));
 
+    // Fills in thumbnails of not-yet-rendered pages as they scroll into view
+    const thumbObserver = "IntersectionObserver" in window ? new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            thumbObserver.unobserve(entry.target);
+            const img = entry.target.querySelector("img");
+            loadPagePreview(Number(entry.target.dataset.page)).then(src => { if (src) img.src = src; });
+        });
+    }, { root: thumbnailRibbon, rootMargin: "200px" }) : null;
+
     function renderThumbnails() {
         thumbnailRibbon.innerHTML = "";
-        store.state.document.pagePreviews.forEach((b64, idx) => {
+        if (thumbObserver) thumbObserver.disconnect();
+        const doc = store.state.document;
+        for (let idx = 0; idx < doc.totalPages; idx++) {
             const card = document.createElement("div");
             card.className = `thumb-card ${idx === 0 ? 'active' : ''}`;
-            card.innerHTML = `<span class="thumb-img"><img src="${b64}" alt=""></span><span class="thumb-label">Page ${idx + 1}</span>`;
+            card.dataset.page = idx + 1;
+            card.innerHTML = `<span class="thumb-img"><img alt=""></span><span class="thumb-label">Page ${idx + 1}</span>`;
+            const src = doc.pagePreviews[idx];
+            if (src) card.querySelector("img").src = src;
+            else if (thumbObserver) thumbObserver.observe(card);
             card.addEventListener("click", () => renderStagePage(idx + 1));
             thumbnailRibbon.appendChild(card);
-        });
+        }
     }
 
     // CSS px (pre-stage-zoom) per PDF point. Overlay elements are positioned in this space via
@@ -2667,8 +2731,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const successHtml = `
                 <div>
                     <strong>✅ PDF Saved Successfully!</strong><br>
-                    <a href="${directLink}" download="${fileName}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600; display: inline-block; margin-top: 6px;">
-                        📥 Downloaded ${fileName} (Click here to open or re-download)
+                    <a href="${escapeHtml(directLink)}" download="${escapeHtml(fileName)}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600; display: inline-block; margin-top: 6px;">
+                        📥 Downloaded ${escapeHtml(fileName)} (Click here to open or re-download)
                     </a>
                 </div>
             `;
@@ -2856,6 +2920,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Plain click on empty page/background: deselect, like Figma.
                 selectedSigId = null;
                 renderStageSignatures();
+                // Close the inspector editors too; a still-focused textarea would swallow typing.
+                if (isTypingTarget(document.activeElement)) document.activeElement.blur();
+                syncTextEditor();
+                syncInkPanel();
             }
             panPending = null;
         });

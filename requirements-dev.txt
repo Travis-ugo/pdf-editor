@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=7.0
+# Browser end-to-end tests (tests/e2e). They drive the installed Google Chrome, so no
+# `playwright install` download is needed; set PDF_E2E_BROWSER=chromium to use Playwright's own build.
+playwright>=1.40

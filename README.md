@@ -109,9 +109,19 @@ python run.py duplicate-pages input.pdf output.pdf --pages "1-3,5" --count 3
 
 ## Running Tests
 
-To run the automated unit tests, make sure you are in the root directory of the project and execute:
+Install the test tools once, then run everything from the project root:
 
 ```bash
-PYTHONPATH=. .venv/bin/python3 -m unittest discover -s tests
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests            # everything (~1 min)
+.venv/bin/python -m pytest tests --ignore=tests/e2e   # skip the browser tests (~5 s)
 ```
-# pdf-duplicator
+
+- `tests/test_*.py`: the PDF engine (`core.py`) and the HTTP API (`test_web.py`). They use
+  throwaway folders, never the real `output/`.
+- `tests/e2e/`: drives the web app in Google Chrome with Playwright (open, type, draw, sign,
+  save, then checks the PDF written to disk). Set `PDF_E2E_BROWSER=chromium` to use Playwright's
+  own Chromium instead (`.venv/bin/playwright install chromium`). Skipped if Playwright is missing.
+
+The unit tests also still run with plain `unittest`:
+`.venv/bin/python -m unittest discover -s tests`.

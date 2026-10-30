@@ -64,6 +64,19 @@ def sanitize_output_filename(default_name, custom_name=None):
 
 
 
+def unique_output_path(filename):
+    """
+    (filename, path) in OUTPUT_DIR that doesn't overwrite an existing file: 'contract.pdf' becomes
+    'contract (1).pdf', 'contract (2).pdf', ... the way browsers name repeated downloads.
+    """
+    stem, ext = os.path.splitext(filename)
+    candidate, n = filename, 0
+    while os.path.exists(os.path.join(OUTPUT_DIR, candidate)):
+        n += 1
+        candidate = f"{stem} ({n}){ext}"
+    return candidate, os.path.join(OUTPUT_DIR, candidate)
+
+
 def render_page_preview(page, zoom, max_side):
     """
     Renders a page to a base64 PNG data URL at `zoom`, scaled down if needed so the longest side
@@ -81,9 +94,31 @@ def render_page_preview(page, zoom, max_side):
     return "data:image/jpeg;base64," + base64.b64encode(pix.tobytes("jpeg", jpg_quality=92)).decode("utf-8")
 
 
+INITIAL_PREVIEW_PAGES = 20
+
+
+def render_editor_preview(page):
+    # This is the background the editor draws signatures/text onto, so it needs to stay sharp on
+    # HiDPI (Retina) screens: zoom 2.0 renders at "@2x" density, matching typical Retina DPR.
+    return render_page_preview(page, 2.0, 2400)
+
+
 @app.route("/")
 def index():
     return render_template("index.html", font_catalog=text_font_catalog(), font_coverage=all_text_font_coverage())
+
+def _upload_path(file_id):
+    """
+    Path of an uploaded PDF, or None. file_id comes from the client, so only accept the UUIDs that
+    /api/inspect-pdf hands out; anything else (e.g. '../../x') could reach PDFs outside the upload dir.
+    """
+    try:
+        file_id = str(uuid.UUID(str(file_id)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
+    return path if os.path.exists(path) else None
+
 
 def _safe_join(directory, filename):
     """
@@ -145,15 +180,15 @@ def inspect_pdf():
         if doc.is_encrypted and password:
             doc.authenticate(password)
 
-        for pno in range(min(total_pages, 20)):  # preview up to first 20 pages
+        for pno in range(total_pages):
             page = doc.load_page(pno)
-            rect = page.rect  # width, height
+            rect = page.rect  # displayed width, height (crop box, after /Rotate)
             page_dimensions.append({"width": float(rect.width), "height": float(rect.height)})
-            
-            # Render page to image. This is also the background the editor draws signatures/text
-            # onto, so it needs to stay sharp on HiDPI (Retina) screens: zoom 2.0 renders at "@2x"
-            # density, matching typical Retina device-pixel ratio.
-            page_previews.append(render_page_preview(page, 2.0, 2400))
+
+            # Only the first pages are rendered up front; the rest come from /api/page-preview
+            # when the editor shows them.
+            if pno < INITIAL_PREVIEW_PAGES:
+                page_previews.append(render_editor_preview(page))
 
         doc.close()
 
@@ -166,8 +201,33 @@ def inspect_pdf():
             "page_previews": page_previews
         })
 
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/page-preview", methods=["POST"])
+def page_preview():
+    """Renders one page of an uploaded PDF for the editor (pages past the first few load lazily)."""
+    input_path = _upload_path(request.form.get("file_id"))
+    if not input_path:
+        return jsonify({"error": "Unknown file. Open the PDF again."}), 404
+    password = request.form.get("password") or None
+    try:
+        page_num = int(request.form.get("page", ""))
+    except ValueError:
+        return jsonify({"error": "Invalid page number."}), 400
+
+    doc = fitz.open(input_path)
+    try:
+        if doc.is_encrypted and not doc.authenticate(password or ""):
+            return jsonify({"error": "Incorrect password for encrypted PDF.", "is_encrypted": True}), 401
+        if not 1 <= page_num <= len(doc):
+            return jsonify({"error": f"Page {page_num} is out of range (1-{len(doc)})."}), 400
+        return jsonify({"page": page_num, "preview": render_editor_preview(doc.load_page(page_num - 1))})
+    finally:
+        doc.close()
+
 
 @app.route("/api/preview-pdf", methods=["POST"])
 def preview_pdf():
@@ -186,11 +246,7 @@ def preview_pdf():
         except Exception:
             pass
 
-    input_path = None
-    if file_id:
-        input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-        if not os.path.exists(input_path):
-            input_path = None
+    input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
         if "file" in request.files:
@@ -234,6 +290,8 @@ def preview_pdf():
             "total_pages": len(page_previews),
             "page_previews": page_previews
         })
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -256,12 +314,8 @@ def sign_pdf_endpoint():
     except ValueError:
         return jsonify({"error": "Invalid numeric coordinates or dimensions."}), 400
 
-    input_path = None
     original_filename = "document.pdf"
-    if file_id:
-        input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-        if not os.path.exists(input_path):
-            input_path = None
+    input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
         if "file" in request.files:
@@ -298,7 +352,7 @@ def sign_pdf_endpoint():
     default_output_name = f"signed_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    output_filename, output_path = unique_output_path(output_filename)
 
     try:
         add_signature_to_pdf(
@@ -338,6 +392,8 @@ def sign_pdf_endpoint():
         response.headers["X-File-Path"] = saved_user_path
         response.headers["Access-Control-Expose-Headers"] = "X-Download-Url, X-File-Path"
         return response
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -356,11 +412,7 @@ def duplicate_pdf_endpoint():
         return jsonify({"error": "Invalid duplication count."}), 400
     repeat_sequence = request.form.get("repeat_sequence", "false").lower() == "true"
 
-    input_path = None
-    if file_id:
-        input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-        if not os.path.exists(input_path):
-            input_path = None
+    input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
         if "file" in request.files:
@@ -374,7 +426,7 @@ def duplicate_pdf_endpoint():
     default_output_name = f"duplicated_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    output_filename, output_path = unique_output_path(output_filename)
 
     try:
         duplicate_pages(
@@ -408,6 +460,8 @@ def duplicate_pdf_endpoint():
         response.headers["X-File-Path"] = saved_user_path
         response.headers["Access-Control-Expose-Headers"] = "X-Download-Url, X-File-Path"
         return response
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -419,11 +473,7 @@ def clone_pdf_endpoint():
     file_id = request.form.get("file_id")
     password = request.form.get("password") or None
 
-    input_path = None
-    if file_id:
-        input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-        if not os.path.exists(input_path):
-            input_path = None
+    input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
         if "file" in request.files:
@@ -437,7 +487,7 @@ def clone_pdf_endpoint():
     default_output_name = f"cloned_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    output_filename, output_path = unique_output_path(output_filename)
 
     try:
         duplicate_pdf(
@@ -468,6 +518,8 @@ def clone_pdf_endpoint():
         response.headers["X-File-Path"] = saved_user_path
         response.headers["Access-Control-Expose-Headers"] = "X-Download-Url, X-File-Path"
         return response
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -491,9 +543,8 @@ def merge_pdf_endpoint():
                 file_id = item.get("file_id")
                 pwd = item.get("password") or None
                 spec = item.get("pages_spec") or None
-                if file_id:
-                    input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-                    if os.path.exists(input_path):
+                input_path = _upload_path(file_id) if file_id else None
+                if input_path:
                         pdf_inputs.append({
                             "path": input_path,
                             "password": pwd,
@@ -520,7 +571,7 @@ def merge_pdf_endpoint():
 
     default_output_name = f"merged_{uuid.uuid4().hex[:6]}.pdf"
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    output_filename, output_path = unique_output_path(output_filename)
 
     try:
         merge_pdfs(pdf_inputs, output_path)
@@ -547,6 +598,8 @@ def merge_pdf_endpoint():
         response.headers["X-File-Path"] = saved_user_path
         response.headers["Access-Control-Expose-Headers"] = "X-Download-Url, X-File-Path"
         return response
+    except ValueError as e:  # bad input: page range, password, count, overlay fields...
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

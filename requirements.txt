@@ -1,2 +1,6 @@
-pypdf>=4.0.0
+pypdf[crypto]>=4.0.0  # [crypto]: AES-encrypted PDFs (most password-protected files) need it
 click>=8.0.0
+Flask>=3.0
+PyMuPDF>=1.24
+reportlab>=4.0
+Pillow>=10.0
