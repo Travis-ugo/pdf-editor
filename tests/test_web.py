@@ -165,6 +165,83 @@ class TestInspect(WebTestCase):
         self.assertIn("error", res.get_json())
 
 
+class TestOpenAnyDocument(WebTestCase):
+    """Non-PDF uploads are converted to PDF, then work like any PDF."""
+
+    def png_bytes(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (300, 150), (255, 255, 255)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_text_file_opens_and_can_be_signed(self):
+        res = self.upload(b"Terms and conditions\nSign below.", name="terms.txt")
+        self.assertEqual(res.status_code, 200, res.get_json())
+        data = res.get_json()
+        self.assertEqual(data["source_kind"], "text")
+        self.assertEqual(data["filename"], "terms.txt")
+        self.assertEqual(data["page_dimensions"][0], {"width": 612.0, "height": 792.0})
+        items = [{"type": "text", "text": "Agreed", "x": 72, "y": 600, "page": 1}]
+        res = self.post_json("/api/sign", {"file_id": data["file_id"], "signatures_json": json.dumps(items)})
+        text = page_texts(self.output_file(res.get_json()["filename"]))[0]
+        self.assertIn("Terms and conditions", text)
+        self.assertIn("Agreed", text)
+
+    def test_image_opens_as_a_page_of_its_shape(self):
+        data = self.upload(self.png_bytes(), name="photo.png").get_json()
+        self.assertEqual(data["source_kind"], "image")
+        dims = data["page_dimensions"][0]
+        self.assertAlmostEqual(dims["width"] / dims["height"], 2.0, places=2)
+
+    def test_pdf_reports_pdf(self):
+        self.assertEqual(self.upload(make_pdf(1)).get_json()["source_kind"], "pdf")
+
+    def test_unsupported_type_is_415_with_a_message(self):
+        res = self.upload(b"MZ...", name="setup.exe")
+        self.assertEqual(res.status_code, 415)
+        self.assertIn(".exe", res.get_json()["error"])
+        self.assertEqual(os.listdir(self.upload_dir), [])
+
+    def test_word_without_libreoffice_says_what_to_install(self):
+        from unittest import mock
+        from pdf_duplicator import convert
+        with mock.patch.object(convert, "find_soffice", return_value=None):
+            res = self.upload(b"PK\x03\x04", name="contract.docx")
+        self.assertEqual(res.status_code, 415)
+        self.assertIn("LibreOffice", res.get_json()["error"])
+        # Neither the original nor a half-written PDF is left behind
+        self.assertEqual(os.listdir(self.upload_dir), [])
+
+    def test_merge_mixed_formats_in_order(self):
+        pdf = self.file_id(make_pdf(1, label="PDF"))
+        txt = self.upload(b"From a text file", name="notes.txt").get_json()["file_id"]
+        img = self.upload(self.png_bytes(), name="scan.png").get_json()["file_id"]
+        res = self.post_json("/api/merge", {"items_json": json.dumps([{"file_id": txt}, {"file_id": img}, {"file_id": pdf}])})
+        texts = page_texts(self.output_file(res.get_json()["filename"]))
+        self.assertEqual(len(texts), 3)
+        self.assertIn("From a text file", texts[0])
+        self.assertEqual(texts[2], "PDF 1")
+
+    def test_merge_direct_upload_converts_too(self):
+        res = self.client.post("/api/merge", headers={"Accept": "application/json"}, content_type="multipart/form-data", data={
+            "files": [(io.BytesIO(b"text page"), "a.txt"), (io.BytesIO(make_pdf(1, label="P")), "b.pdf")]})
+        self.assertEqual(res.status_code, 200, res.get_json())
+        texts = page_texts(self.output_file(res.get_json()["filename"]))
+        self.assertIn("text page", texts[0])
+        self.assertEqual(texts[1], "P 1")
+
+    def test_fallback_reupload_of_a_non_pdf_is_converted(self):
+        # When the server lost the upload (e.g. restart), the client re-sends the original file
+        res = self.client.post("/api/clone", headers={"Accept": "application/json"}, content_type="multipart/form-data",
+                               data={"file_id": str(uuid.uuid4()), "file": (io.BytesIO(b"resent text"), "notes.txt")})
+        self.assertEqual(res.status_code, 200, res.get_json())
+        self.assertIn("resent text", page_texts(self.output_file(res.get_json()["filename"]))[0])
+
+    def test_index_advertises_supported_extensions(self):
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn("window.DOCUMENT_EXTENSIONS", html)
+        self.assertIn(".docx", html)
+
+
 class TestPagePreview(WebTestCase):
     def test_renders_a_page_past_the_initial_batch(self):
         fid = self.file_id(make_pdf(25))

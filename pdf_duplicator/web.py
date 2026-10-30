@@ -9,6 +9,7 @@ from pypdf import PdfReader
 
 import fitz  # PyMuPDF for rendering page preview images
 
+from pdf_duplicator.convert import convert_to_pdf, SUPPORTED_EXTENSIONS
 from pdf_duplicator.core import duplicate_pdf, duplicate_pages, add_signature_to_pdf, merge_pdfs, all_text_font_coverage, text_font_catalog
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +106,8 @@ def render_editor_preview(page):
 
 @app.route("/")
 def index():
-    return render_template("index.html", font_catalog=text_font_catalog(), font_coverage=all_text_font_coverage())
+    return render_template("index.html", font_catalog=text_font_catalog(), font_coverage=all_text_font_coverage(),
+                           document_extensions=sorted(SUPPORTED_EXTENSIONS))
 
 def _upload_path(file_id):
     """
@@ -118,6 +120,38 @@ def _upload_path(file_id):
         return None
     path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
     return path if os.path.exists(path) else None
+
+
+def save_upload(file):
+    """
+    Saves an uploaded document as <file_id>.pdf in the upload folder, converting it first if it
+    isn't a PDF (Word, images, text, ...). Returns (file_id, path, kind). Raises ValueError
+    (convert.UnsupportedDocument) for files that can't be opened.
+    """
+    file_id = str(uuid.uuid4())
+    path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext in ("", ".pdf"):
+        file.save(path)
+        return file_id, path, "pdf"
+    original = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.source{ext}")
+    file.save(original)
+    try:
+        kind = convert_to_pdf(original, path, filename=file.filename)
+    finally:
+        os.remove(original)
+    return file_id, path, kind
+
+
+def _save_fallback_upload():
+    """(file_id, path, error_response) for an endpoint's re-sent 'file' when its file_id is gone."""
+    if "file" not in request.files:
+        return None, None, (jsonify({"error": "Missing input PDF file."}), 400)
+    try:
+        file_id, path, _ = save_upload(request.files["file"])
+    except ValueError as e:
+        return None, None, (jsonify({"error": str(e)}), 400)
+    return file_id, path, None
 
 
 def _safe_join(directory, filename):
@@ -145,18 +179,19 @@ def download_output_file(filename):
 @app.route("/api/inspect-pdf", methods=["POST"])
 def inspect_pdf():
     """
-    Receives an uploaded PDF file, saves to temp storage, extracts page info,
-    and renders page previews as PNG base64 strings for visual editing.
+    Receives an uploaded document (a PDF, or any format convert.py can turn into one), saves it to
+    temp storage as a PDF, extracts page info, and renders page previews for visual editing.
     """
     if "file" not in request.files:
-        return jsonify({"error": "No PDF file provided."}), 400
+        return jsonify({"error": "No document provided."}), 400
 
     file = request.files["file"]
     password = request.form.get("password") or None
 
-    file_id = str(uuid.uuid4())
-    temp_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-    file.save(temp_path)
+    try:
+        file_id, temp_path, source_kind = save_upload(file)
+    except ValueError as e:
+        return jsonify({"error": str(e), "unsupported": True}), 415
 
     try:
         reader = PdfReader(temp_path)
@@ -197,6 +232,7 @@ def inspect_pdf():
             "filename": file.filename,
             "total_pages": total_pages,
             "is_encrypted": is_encrypted,
+            "source_kind": source_kind,  # "pdf", or what it was converted from ("office", "image", ...)
             "page_dimensions": page_dimensions,
             "page_previews": page_previews
         })
@@ -249,13 +285,9 @@ def preview_pdf():
     input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
-        if "file" in request.files:
-            file = request.files["file"]
-            file_id = str(uuid.uuid4())
-            input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-            file.save(input_path)
-        else:
-            return jsonify({"error": "Missing input PDF file."}), 400
+        file_id, input_path, error = _save_fallback_upload()
+        if error:
+            return error
 
     preview_output_filename = f"prev_{uuid.uuid4().hex[:8]}.pdf"
     preview_output_path = os.path.join(UPLOAD_TEMP_DIR, preview_output_filename)
@@ -314,18 +346,12 @@ def sign_pdf_endpoint():
     except ValueError:
         return jsonify({"error": "Invalid numeric coordinates or dimensions."}), 400
 
-    original_filename = "document.pdf"
     input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
-        if "file" in request.files:
-            file = request.files["file"]
-            file_id = str(uuid.uuid4())
-            original_filename = file.filename
-            input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-            file.save(input_path)
-        else:
-            return jsonify({"error": "Missing input PDF file."}), 400
+        file_id, input_path, error = _save_fallback_upload()
+        if error:
+            return error
 
     import json
     signatures_json = request.form.get("signatures_json")
@@ -415,13 +441,9 @@ def duplicate_pdf_endpoint():
     input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
-        if "file" in request.files:
-            file = request.files["file"]
-            file_id = str(uuid.uuid4())
-            input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-            file.save(input_path)
-        else:
-            return jsonify({"error": "Missing input PDF file."}), 400
+        file_id, input_path, error = _save_fallback_upload()
+        if error:
+            return error
 
     default_output_name = f"duplicated_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
@@ -476,13 +498,9 @@ def clone_pdf_endpoint():
     input_path = _upload_path(file_id) if file_id else None
 
     if not input_path:
-        if "file" in request.files:
-            file = request.files["file"]
-            file_id = str(uuid.uuid4())
-            input_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}.pdf")
-            file.save(input_path)
-        else:
-            return jsonify({"error": "Missing input PDF file."}), 400
+        file_id, input_path, error = _save_fallback_upload()
+        if error:
+            return error
 
     default_output_name = f"cloned_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
@@ -557,9 +575,10 @@ def merge_pdf_endpoint():
     if uploaded_files:
         for ufile in uploaded_files:
             if ufile and ufile.filename:
-                fid = str(uuid.uuid4())
-                tpath = os.path.join(UPLOAD_TEMP_DIR, f"{fid}.pdf")
-                ufile.save(tpath)
+                try:
+                    _, tpath, _ = save_upload(ufile)
+                except ValueError as e:
+                    return jsonify({"error": f"{ufile.filename}: {e}"}), 400
                 pdf_inputs.append({
                     "path": tpath,
                     "password": None,

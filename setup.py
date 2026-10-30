@@ -11,6 +11,7 @@ setup(
         "PyMuPDF>=1.24",
         "reportlab>=4.0",
         "Pillow>=10.0",
+        "markdown>=3.5",
     ],
     include_package_data=True,
     entry_points={

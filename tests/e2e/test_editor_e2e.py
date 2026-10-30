@@ -322,6 +322,60 @@ class EditorE2E(unittest.TestCase):
         # The 401 for the first, password-less attempt is expected
         self.errors = [e for e in self.errors if "401" not in e]
 
+    def test_text_file_opens_signs_and_downloads_as_pdf(self):
+        path = os.path.join(self.fixtures, "terms.txt")
+        with open(path, "w") as f:
+            f.write("Terms of service\n\nBy signing you agree.")
+        self.open_pdf(path)
+        self.assertEqual(self.page.inner_text("#docName"), "terms.txt")
+        self.assertIn("from TXT", self.page.inner_text("#docMeta"))
+        self.add_text("Agreed")
+        # No custom name: the download is named after the document, with a .pdf extension
+        before = set(os.listdir(self.output_dir))
+        with self.page.expect_download() as dl:
+            self.page.click("#processActionBtn")
+        self.assertEqual(dl.value.suggested_filename, "sign_terms.pdf")
+        self.page.wait_for_selector("#statusAlert:not(.hidden)")
+        new = set(os.listdir(self.output_dir)) - before
+        self.assertEqual(len(new), 1)
+        text = fitz.open(os.path.join(self.output_dir, new.pop()))[0].get_text()
+        self.assertIn("Terms of service", text)
+        self.assertIn("Agreed", text)
+
+    def test_image_opens_as_a_page(self):
+        from PIL import Image
+        path = os.path.join(self.fixtures, "receipt.png")
+        Image.new("RGB", (600, 900), (250, 250, 250)).save(path)
+        self.open_pdf(path)
+        dims = self.page.evaluate("window.appStore.state.document.pageDimensions[0]")
+        self.assertAlmostEqual(dims["width"] / dims["height"], 600 / 900, places=2)
+        self.assertIn("from PNG", self.page.inner_text("#docMeta"))
+
+    def test_unsupported_file_shows_why(self):
+        path = os.path.join(self.fixtures, "setup.exe")
+        with open(path, "wb") as f:
+            f.write(b"MZ")
+        self.page.set_input_files("#pdfFileInput", path)
+        self.page.wait_for_function("document.getElementById('statusAlert').textContent.includes('.exe')")
+        self.assertTrue(self.page.is_visible("#emptyStageNotice"))
+        self.errors = [e for e in self.errors if "415" not in e]
+
+    def test_merge_accepts_other_formats(self):
+        txt = os.path.join(self.fixtures, "cover.txt")
+        with open(txt, "w") as f:
+            f.write("Cover letter")
+        pdf = make_pdf(os.path.join(self.fixtures, "body.pdf"), pages=1, label="Body")
+        self.page.click('.rail-btn[data-mode="merge"]')
+        self.page.set_input_files("#mergeFileInput", [txt, pdf])
+        self.page.wait_for_function("window.appStore.state.merge.files.length === 2 && window.appStore.state.merge.files.every(f => f.fileId)")
+        # Uploads finish in any order; put the cover letter first
+        names = self.page.evaluate("window.appStore.state.merge.files.map(f => f.filename)")
+        out = self.save("e2e-mixed-merge")
+        texts = [p.get_text().strip() for p in fitz.open(out)]
+        self.assertEqual(len(texts), 2)
+        self.assertEqual(texts[names.index("cover.txt")], "Cover letter")
+        self.assertEqual(texts[names.index("body.pdf")], "Body 1")
+
     def test_duplicate_mode(self):
         self.open_pdf(self.sample)
         self.page.click('.rail-btn[data-mode="duplicate"]')

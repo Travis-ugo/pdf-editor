@@ -9,6 +9,17 @@ A lightweight, robust Python command-line interface (CLI) tool and library desig
 - **Flexible Ordering**: Replicate pages sequentially (e.g. page 1 twice, page 2 twice: `p1, p1, p2, p2`) or repeat the entire selected page sequence (e.g., `p1, p2, p1, p2`).
 - **Interactive Prompts**: Securely prompts for passwords in the console if an encrypted file is detected.
 
+### Opening other documents (web app)
+
+The web editor opens more than PDFs: each file is converted to PDF on upload, then signed, annotated,
+merged or duplicated like any PDF (saves are always PDF). See `pdf_duplicator/convert.py`.
+
+- Built in: images (PNG, JPEG, GIF, BMP, TIFF incl. multi-page, WebP), SVG, plain text, Markdown,
+  HTML, EPUB/XPS and other e-book formats.
+- Word, PowerPoint, Excel, OpenDocument and RTF need [LibreOffice](https://www.libreoffice.org)
+  (`brew install --cask libreoffice`). It's found on `PATH`, in `/Applications`, or via
+  `SOFFICE_PATH`. Without it those files show a message saying so.
+
 ## Directory Structure
 
 ```text

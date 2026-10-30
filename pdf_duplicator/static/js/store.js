@@ -22,7 +22,8 @@ class PDFStudioStore {
                 isEncrypted: false,
                 currentPage: 1,
                 pagePreviews: [],
-                pageDimensions: []
+                pageDimensions: [],
+                sourceKind: "pdf"  // what the open document was converted from ("office", "image", ...)
             },
             
             // Signature State
@@ -122,7 +123,8 @@ class PDFStudioStore {
             isEncrypted: false,
             currentPage: 1,
             pagePreviews: [],
-            pageDimensions: []
+            pageDimensions: [],
+            sourceKind: "pdf"
         };
         this.emit("document:reset");
     }

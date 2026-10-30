@@ -3,6 +3,13 @@
 document.addEventListener("DOMContentLoaded", () => {
     const store = window.appStore;
 
+    // Formats the server can open (it converts non-PDFs to PDF on upload)
+    const DOCUMENT_EXTENSIONS = new Set(window.DOCUMENT_EXTENSIONS || [".pdf"]);
+    const fileExtension = (name) => { const m = /\.[^./\\]+$/.exec(name || ""); return m ? m[0].toLowerCase() : ""; };
+    const isOpenableDocument = (file) => file.type === "application/pdf" || DOCUMENT_EXTENSIONS.has(fileExtension(file.name));
+    // "contract.docx" -> "contract.pdf": every save is a PDF, whatever was opened
+    const asPdfName = (name) => (name || "document").replace(/\.[^./\\]+$/, "") + ".pdf";
+
     // --- DOM Elements ---
     const themeToggleBtn = document.getElementById("themeToggleBtn");
     const pwaInstallBtn = document.getElementById("pwaInstallBtn");
@@ -279,7 +286,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let pendingUploadFile = null;
 
     function handleFileUpload(file) {
-        showStatus(null);
+        const ext = fileExtension(file.name);
+        showStatus(ext && ext !== ".pdf" ? `Opening ${file.name}…` : null, "info");
         const formData = new FormData();
         formData.append("file", file);
         if (pdfPasswordInput.value) {
@@ -301,6 +309,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             pendingUploadFile = null;
+            showStatus(null);
 
             store.setDocument({
                 fileId: data.file_id,
@@ -308,6 +317,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 filename: file.name,
                 totalPages: data.total_pages,
                 isEncrypted: data.is_encrypted,
+                sourceKind: data.source_kind || "pdf",
                 currentPage: 1,
                 pagePreviews: data.page_previews,
                 pageDimensions: data.page_dimensions
@@ -385,7 +395,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function handleMergeFilesUpload(filesList) {
         filesList.forEach(file => {
-            if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+            if (!isOpenableDocument(file)) {
+                showStatus(`Can't open ${file.name}: unsupported file type.`, "error");
                 return;
             }
             const formData = new FormData();
@@ -558,7 +569,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     store.subscribe("document:loaded", (doc) => {
         docName.textContent = doc.filename;
-        docMeta.textContent = `${doc.totalPages} page${doc.totalPages > 1 ? 's' : ''}`;
+        const from = doc.sourceKind && doc.sourceKind !== "pdf" ? ` · from ${fileExtension(doc.filename).slice(1).toUpperCase()}` : "";
+        docMeta.textContent = `${doc.totalPages} page${doc.totalPages > 1 ? 's' : ''}${from}`;
         dropzone.classList.add("hidden");
         docInfoCard.classList.remove("hidden");
         if (!doc.isEncrypted) {
@@ -2718,7 +2730,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (fileName) {
                 if (!fileName.toLowerCase().endsWith(".pdf")) fileName += ".pdf";
             } else {
-                fileName = `${store.state.currentMode}_${doc.filename || 'document.pdf'}`;
+                fileName = `${store.state.currentMode}_${asPdfName(doc.filename)}`;
             }
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -3352,9 +3364,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!isFileDrag(e)) return;
             e.preventDefault();
             e.stopPropagation();
-            const file = Array.from(e.dataTransfer.files).find(f => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+            const file = Array.from(e.dataTransfer.files).find(isOpenableDocument);
             if (!file) {
-                showStatus("That isn't a PDF. Drop a .pdf file to open it.", "error");
+                showStatus("Can't open that file type. Drop a PDF, Word, PowerPoint, Excel, text or image file.", "error");
                 return;
             }
             if (store.state.currentMode === "merge") store.setMode("sign");
