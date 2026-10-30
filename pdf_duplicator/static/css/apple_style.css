@@ -1,14 +1,23 @@
 /* Apple macOS / iOS Design System Stylesheet */
 
-:root {
-    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+/* UI typeface: Poppins, as in the Velarius design system (Figma). Bundled, so it works offline.
+   (Fonts offered for document text are registered separately by app.js as 'PDFS <name>'.) */
+@font-face { font-family: 'Poppins'; font-weight: 400; font-style: normal; font-display: swap; src: url('../fonts/Poppins-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Poppins'; font-weight: 500; font-style: normal; font-display: swap; src: url('../fonts/Poppins-Medium.ttf') format('truetype'); }
+@font-face { font-family: 'Poppins'; font-weight: 600; font-style: normal; font-display: swap; src: url('../fonts/Poppins-SemiBold.ttf') format('truetype'); }
+@font-face { font-family: 'Poppins'; font-weight: 700; font-style: normal; font-display: swap; src: url('../fonts/Poppins-Bold.ttf') format('truetype'); }
 
-    /* Dark theme (default): Figma-style neutral greys */
-    --bg-primary: #1e1e1e;          /* canvas */
-    --bg-secondary: #2c2c2c;        /* panels */
-    --bg-card: #2c2c2c;
-    --bg-card-solid: #2c2c2c;
-    --bg-elevated: #383838;         /* menus, tool bar, popovers */
+/* Design tokens, from the Velarius Consulting Figma file (Colors & Typography + Desktop screens).
+   The --apple-* names are historical: --apple-blue is "the accent", whatever its hue. */
+:root {
+    --font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    /* Dark theme: Figma-editor greys with the Velarius accent */
+    --bg-primary: #1a1a1a;          /* canvas */
+    --bg-secondary: #242424;        /* panels */
+    --bg-card: #242424;
+    --bg-card-solid: #242424;
+    --bg-elevated: #2e2e2e;         /* menus, tool bar, popovers */
     --bg-glass: rgba(255, 255, 255, 0.06);
     --bg-glass-hover: rgba(255, 255, 255, 0.1);
 
@@ -16,23 +25,31 @@
     --text-secondary: #b3b3b3;
     --text-tertiary: #8a8a8a;
 
-    --border-color: #444444;
-    --border-accent: #555555;
+    --border-color: #383838;
+    --border-accent: #4a4a4a;
 
     /* Accent: one token drives every highlight. --accent-rgb is for translucent tints. */
-    --apple-blue: #0d99ff;
-    --apple-blue-hover: #0b85e0;
-    --accent-rgb: 13, 153, 255;
-    --apple-indigo: #0b85e0;
-    --apple-emerald: #14ae5c;
-    --apple-red: #f24822;
+    --apple-blue: #e5484d;
+    --apple-blue-hover: #f05a5f;
+    --accent-rgb: 229, 72, 77;
+    --accent-soft: rgba(229, 72, 77, 0.16);   /* active nav pill */
+    --accent-ink: #ff8589;                    /* accent-coloured text on --accent-soft */
+    --apple-indigo: #605dec;
+    --apple-emerald: #22c45e;
+    --apple-red: #e5484d;
 
-    --card-radius: 12px;
-    --btn-radius: 6px;
+    /* The "AI" gradient (Study Buddy / Use AI buttons) */
+    --accent-gradient: linear-gradient(100deg, #b82a93 0%, #e2317f 38%, #f37061 72%, #f7a24d 100%);
+
+    --card-radius: 16px;
+    --btn-radius: 99px;
     --pill-radius: 9999px;
+    --field-radius: 8px;
+    --field-bg: rgba(255, 255, 255, 0.04);
 
     --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.3);
     --shadow-glass: 0 6px 24px rgba(0, 0, 0, 0.45);
+    --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.45);
 
     --backdrop-blur: blur(0px);
 }
@@ -43,22 +60,27 @@ body.light-mode {
     --bg-card: #ffffff;
     --bg-card-solid: #ffffff;
     --bg-elevated: #ffffff;
-    --bg-glass: rgba(0, 0, 0, 0.04);
-    --bg-glass-hover: rgba(0, 0, 0, 0.07);
+    --bg-glass: #f5f5f5;
+    --bg-glass-hover: #efefef;
 
-    --text-primary: #1e1e1e;
-    --text-secondary: #5e5e5e;
-    --text-tertiary: #8c8c8c;
+    --text-primary: #1a1a1a;
+    --text-secondary: #707070;
+    --text-tertiary: #909090;
 
-    --border-color: #e6e6e6;
-    --border-accent: #d4d4d4;
+    --border-color: #ededed;
+    --border-accent: #d2d2d2;
 
-    --apple-blue: #0d99ff;
-    --apple-blue-hover: #007be5;
-    --accent-rgb: 13, 153, 255;
+    --apple-blue: #bc1823;
+    --apple-blue-hover: #a3141e;
+    --accent-rgb: 188, 24, 35;
+    --accent-soft: #fff0f1;
+    --accent-ink: #bc1823;
+    --apple-red: #bc1823;
+    --field-bg: #ffffff;
 
-    --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.08);
-    --shadow-glass: 0 6px 24px rgba(0, 0, 0, 0.15);
+    --shadow-subtle: 0 1px 3px rgba(16, 24, 40, 0.1);
+    --shadow-glass: 0 8px 24px rgba(16, 24, 40, 0.08);
+    --shadow-float: 0 12px 32px rgba(16, 24, 40, 0.12), 0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 * {
@@ -3325,3 +3347,313 @@ textarea.apple-input {
 
 /* An older .stamp-banner rule stacks its children; the floating banners are a single row */
 .stamp-banner { flex-direction: row; }
+
+/* =========================================================================================
+   Velarius theme (Figma: VELARIUS CONSULTING, Desktop + Components pages).
+   Brings the design system's look -- Poppins, white panels on a #F5F5F5 canvas, pill buttons,
+   soft-red active states, the pink-to-coral gradient -- onto the Figma-editor layout above.
+   ========================================================================================= */
+
+body { font-feature-settings: normal; }
+
+/* --- Rail: the Velarius side nav, condensed --- */
+.tool-rail {
+    width: 76px;
+    gap: 4px;
+    padding: 16px 0 14px;
+}
+
+.rail-logo {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    background: var(--accent-gradient);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(226, 49, 127, 0.28);
+}
+
+.rail-divider { width: 32px; margin: 6px 0 8px; }
+
+.rail-btn {
+    width: 60px;
+    padding: 7px 0 6px;
+    gap: 2px;
+    border-radius: 12px;
+    color: var(--text-secondary);
+    transition: background 0.12s, color 0.12s;
+}
+
+.rail-icon { width: 26px; height: 26px; }
+.rail-label { font-size: 10.5px; font-weight: 500; }
+
+.rail-btn:hover { background: var(--bg-glass); color: var(--text-primary); }
+.rail-btn:hover .rail-icon { background: none; }
+.rail-btn.active,
+.rail-btn.active:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.rail-btn.active .rail-icon { background: none; color: var(--accent-ink); }
+
+/* Round outlined icon buttons, like the header's search / notification buttons */
+.rail-btn.icon-only {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+}
+
+/* --- Panels --- */
+.panel-header { height: 64px; padding: 0 20px; }
+.panel-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.props-header { padding: 0 16px; gap: 10px; }
+.panel-section { padding: 16px 20px 18px; }
+.section-title { font-size: 13px; font-weight: 500; margin-bottom: 10px; }
+.tray-subtext { font-size: 11.5px; line-height: 1.55; }
+.form-label { font-size: 12px; }
+
+.props-tabs { padding: 10px 16px; }
+.props-tab {
+    padding: 6px 14px;
+    border-radius: var(--pill-radius);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-weight: 500;
+}
+
+.zoom-menu-btn { height: 30px; padding: 0 10px; border-radius: var(--pill-radius); font-weight: 500; }
+
+.icon-btn { border-radius: 8px; }
+.icon-btn.large {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+}
+
+/* --- Buttons: pills --- */
+.apple-btn { border-radius: var(--btn-radius); font-weight: 500; }
+
+.apple-btn.secondary {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-accent);
+    color: var(--text-primary);
+}
+
+.apple-btn.secondary:hover { background: var(--bg-glass); }
+.apple-btn.primary:disabled { background: var(--bg-glass); color: var(--text-tertiary); }
+
+.save-btn {
+    height: 38px;
+    padding: 0 24px;
+    border-radius: var(--btn-radius);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.apple-btn.primary:not(:disabled) { box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+
+.btn-text { color: var(--accent-ink); font-weight: 500; }
+
+/* --- Form controls --- */
+.apple-input,
+.apple-select {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: var(--field-radius);
+    border: 1px solid var(--border-color);
+    background: var(--field-bg);
+    font-size: 12.5px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.apple-input::placeholder { color: var(--text-tertiary); }
+.apple-input:hover,
+.apple-select:hover { border-color: var(--border-accent); }
+
+.apple-input:focus,
+.apple-select:focus {
+    border-color: var(--apple-blue);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+
+textarea.apple-input { padding: 9px 12px; }
+.field .apple-input { padding-left: 28px; }
+.field-prefix { left: 11px; font-weight: 500; }
+
+.font-picker-btn {
+    height: 36px;
+    border-radius: var(--field-radius);
+    border: 1px solid var(--border-color);
+    background: var(--field-bg);
+}
+
+.font-picker-btn:hover,
+.font-picker-btn[aria-expanded="true"] { border-color: var(--border-accent); }
+
+/* Chips: small outlined pills; the active one takes the soft-red fill */
+.chip-btn {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: var(--pill-radius);
+    border-color: var(--border-accent);
+    font-weight: 500;
+}
+
+.chip-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--apple-blue);
+    color: var(--accent-ink);
+}
+
+.text-style-btn { width: 30px; height: 30px; padding: 0; }
+
+.radio-card { border-radius: 12px; }
+
+/* --- File & pages --- */
+.upload-dropzone {
+    padding: 14px;
+    border-radius: 12px;
+    border-color: var(--border-accent);
+}
+
+.upload-dropzone:hover,
+.upload-dropzone.dragover {
+    border-color: var(--apple-blue);
+    background: var(--accent-soft);
+}
+
+.upload-dropzone .drop-title { font-size: 12.5px; }
+.doc-info-card { padding: 10px 12px; border-radius: 12px; }
+
+.thumbnail-ribbon { gap: 2px; margin: 0 -10px; max-height: 300px; }
+
+.thumb-card {
+    height: 44px;
+    padding: 0 10px;
+    border-radius: 10px;
+}
+
+.thumb-img { width: 24px; height: 32px; border-radius: 3px; }
+.thumb-card.active { background: var(--accent-soft); }
+.thumb-card.active .thumb-label { color: var(--accent-ink); font-weight: 500; }
+.thumb-label { font-size: 12.5px; }
+
+.tray-sig-card { border-radius: 12px; padding: 6px 8px; }
+
+/* --- Canvas --- */
+.stage-viewport { padding: 40px; }
+
+.pdf-canvas-container {
+    border-radius: 2px;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.1), 0 16px 40px rgba(16, 24, 40, 0.08);
+}
+
+body.dark-mode .pdf-canvas-container { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.4); }
+
+.empty-stage-notice {
+    max-width: 340px;
+    padding: 36px 32px 32px;
+    gap: 10px;
+    border-radius: 24px;
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-glass);
+    text-align: center;
+}
+
+.empty-stage-notice svg { color: var(--apple-blue); }
+.empty-stage-notice h3 { font-size: 18px; font-weight: 600; }
+.empty-stage-notice p { font-size: 12.5px; }
+.empty-stage-notice .apple-btn { height: 38px; padding: 0 24px; border-radius: var(--btn-radius); font-size: 13px; margin-top: 6px; }
+
+/* Floating tool bar: a white card with the Velarius soft shadow */
+.bottom-toolbar {
+    bottom: 20px;
+    border-radius: 20px;
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-float);
+}
+
+.toolbar-group { padding: 8px; gap: 4px; }
+.toolbar-group-muted { border-radius: 14px; }
+
+.tool-btn { border-radius: 12px; }
+.tool-btn.active,
+.tool-btn.active:hover { background: var(--apple-blue); color: #fff; box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.3); }
+
+/* "New signature": the gradient pill, like Study Buddy / Use AI */
+.toolbar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 38px;
+    padding: 0 18px 0 14px;
+    margin-left: 8px;
+    border-radius: var(--btn-radius);
+    background: var(--accent-gradient);
+    box-shadow: 0 4px 14px rgba(226, 49, 127, 0.3);
+    font-size: 12.5px;
+    transition: filter 0.12s, box-shadow 0.12s;
+}
+
+.toolbar-pill:hover { background: var(--accent-gradient); filter: brightness(1.06); box-shadow: 0 6px 18px rgba(226, 49, 127, 0.38); }
+
+.stamp-banner { border-radius: var(--pill-radius); padding: 7px 10px 7px 18px; }
+
+.status-alert { border-radius: 12px; padding: 11px 16px; }
+.status-alert.success { box-shadow: inset 3px 0 0 var(--apple-emerald), var(--shadow-float); }
+.status-alert.error { box-shadow: inset 3px 0 0 #f05a5f, var(--shadow-float); }
+
+/* Menus keep Figma's dark look; rounder, with the accent on hover */
+.zoom-menu,
+.item-context-menu { border-radius: 12px; padding: 6px; }
+.zoom-menu .ctx-item,
+.item-context-menu .ctx-item { border-radius: 8px; height: 30px; }
+
+/* --- Dialogs: Velarius side-sheet headers (title + round close) on a rounded card --- */
+.apple-modal-backdrop { background: rgba(26, 26, 26, 0.45); }
+.apple-modal-sheet { border-radius: 24px; border: none; box-shadow: var(--shadow-float); }
+
+.modal-header { height: 72px; padding: 0 16px 0 24px; }
+.modal-header h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+
+.close-modal-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border-accent);
+    color: var(--text-primary);
+}
+
+.modal-tabs { padding: 12px 24px; gap: 6px; }
+
+.modal-tab {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: var(--pill-radius);
+}
+
+.modal-tab.active {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-weight: 500;
+}
+
+.modal-body { padding: 20px 24px; }
+.modal-footer { padding: 16px 24px 20px; gap: 10px; }
+.modal-footer .apple-btn { height: 40px; padding: 0 22px; border-radius: var(--btn-radius); }
+
+.canvas-wrapper { border-radius: 16px; overflow: hidden; }
+.sig-upload-dropzone { border-radius: 16px; }
+
+.color-btn.active,
+.text-color-btn.active,
+.ink-color-btn.active { box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--apple-blue); }
+
+/* --- Launch screen --- */
+.app-loader-logo { color: var(--apple-blue); }
+.app-loader-bar { background: var(--accent-gradient); }
+
+@media (max-width: 760px) {
+    .tool-rail { width: 100%; padding: 8px 12px; }
+    .rail-btn { width: 56px; }
+}

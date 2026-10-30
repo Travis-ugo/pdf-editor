@@ -1,8 +1,13 @@
-const CACHE_NAME = 'pdf-studio-pro-v16';
+const CACHE_NAME = 'pdf-studio-pro-v17';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/apple_style.css',
   '/static/js/app.js',
+  '/static/js/store.js',
+  '/static/fonts/Poppins-Regular.ttf',
+  '/static/fonts/Poppins-Medium.ttf',
+  '/static/fonts/Poppins-SemiBold.ttf',
+  '/static/fonts/Poppins-Bold.ttf',
   '/static/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
@@ -35,8 +40,11 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   // Network first with cache fallback for API endpoints, Stale-while-revalidate for static assets
-  if (event.request.url.includes('/api/')) {
-    return; // allow API calls to hit backend
+  // API calls and saved PDFs (/output/...) always go to the server: caching a download would
+  // keep serving a stale copy and fill the browser's storage with documents.
+  const path = new URL(event.request.url).pathname;
+  if (event.request.method !== 'GET' || path.startsWith('/api/') || path.startsWith('/output/')) {
+    return;
   }
 
   event.respondWith(

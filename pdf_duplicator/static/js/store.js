@@ -11,7 +11,7 @@ class PDFStudioStore {
         // Initial State
         this.state = {
             currentMode: "sign", // "sign" | "duplicate" | "clone"
-            theme: localStorage.getItem("pdf_studio_theme") || "dark-mode",
+            theme: localStorage.getItem("pdf_studio_theme") || "light-mode",
             
             // Document State
             document: {
