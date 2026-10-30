@@ -290,6 +290,40 @@ class PDFStudioStore {
         return newTextItem;
     }
 
+    // Pen drawings and check marks (type: "ink") are vector strokes in the same list, so they too
+    // share selection, undo/redo, z-order, page targeting and the position inspector. `strokes`
+    // are [[x, y], ...] point lists in a baseWidth x baseHeight box that scales to width x height.
+    addInkToDoc(customProps = {}) {
+        this.recordStateSnapshot();
+        const items = this.state.signature.activeSignaturesOnDoc;
+        const maxZ = items.length > 0 ? Math.max(...items.map(s => s.zIndex || 1)) + 1 : 1;
+
+        const newInkItem = {
+            id: "ink_doc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            type: "ink",
+            strokes: [],
+            color: "#000000",
+            lineWidth: 1.5,
+            page: this.state.document.currentPage || 1,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            baseWidth: 0,
+            baseHeight: 0,
+            rotation: 0,
+            opacity: 1.0,
+            zIndex: maxZ,
+            locked: false,
+            confirmed: false,
+            ...customProps
+        };
+
+        items.push(newInkItem);
+        this.emit("signatures:doc_updated", items);
+        return newInkItem;
+    }
+
     updateSignatureOnDoc(id, newProps, recordHistory = false) {
         if (recordHistory) {
             this.recordStateSnapshot();
@@ -325,7 +359,7 @@ class PDFStudioStore {
         if (!src) return null;
         this.recordStateSnapshot();
         const maxZ = Math.max(...items.map(s => s.zIndex || 1)) + 1;
-        const prefix = src.type === "text" ? "text_doc_" : "sig_doc_";
+        const prefix = src.type === "text" ? "text_doc_" : (src.type === "ink" ? "ink_doc_" : "sig_doc_");
         const copy = {
             ...src,
             id: prefix + Date.now() + "_" + Math.floor(Math.random() * 1000),

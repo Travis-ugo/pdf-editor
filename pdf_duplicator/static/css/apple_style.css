@@ -3225,3 +3225,103 @@ textarea.apple-input {
 }
 
 .cp-swatch:hover { outline: 2px solid var(--apple-blue); outline-offset: 1px; }
+
+/* --- Pen drawings & check marks (ink items) --- */
+.signature-overlay.ink-overlay {
+    background: transparent;
+    border-color: transparent;
+}
+
+.signature-overlay.ink-overlay:hover,
+.signature-overlay.ink-overlay.active-selected {
+    border-color: var(--apple-blue);
+}
+
+/* Ink keeps its proportions, so only the corner handles apply */
+.ink-overlay .handle-n,
+.ink-overlay .handle-s,
+.ink-overlay .handle-e,
+.ink-overlay .handle-w {
+    display: none;
+}
+
+/* Like text, the viewBox is in PDF points: cover the full box, not the border-inset one */
+.ink-overlay .overlay-inner {
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
+.ink-overlay-svg,
+.ink-live-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.ink-live-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 100000;
+}
+
+/* While drawing or ticking, the page takes the clicks: placed items don't grab or show handles */
+.stage-viewport.pen-active,
+.stage-viewport.pen-active #pdfCanvasContainer,
+.stage-viewport.pen-active .signature-overlay,
+.stage-viewport.mark-active #pdfCanvasContainer {
+    cursor: crosshair !important;
+}
+
+.stage-viewport.pen-active {
+    touch-action: none;
+}
+
+.stage-viewport.pen-active .resize-handle,
+.stage-viewport.pen-active .corner-rot-zone {
+    display: none;
+}
+
+.ink-color-btn {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+}
+
+.ink-color-btn.active {
+    box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--apple-blue);
+}
+
+.mark-shape-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Ink items are often tiny (a 12pt check mark) and numerous (every word written): show handles
+   only on the selected one, smaller and just outside the corners so they don't hide the ink. */
+.ink-overlay:not(.active-selected) .resize-handle,
+.ink-overlay:not(.active-selected) .corner-rot-zone {
+    display: none;
+}
+
+.ink-overlay .resize-handle { width: 8px; height: 8px; }
+.ink-overlay .handle-nw { top: -10px; left: -10px; }
+.ink-overlay .handle-ne { top: -10px; right: -10px; }
+.ink-overlay .handle-sw { bottom: -10px; left: -10px; }
+.ink-overlay .handle-se { bottom: -10px; right: -10px; }
+
+/* An older .stamp-banner rule stacks its children; the floating banners are a single row */
+.stamp-banner { flex-direction: row; }

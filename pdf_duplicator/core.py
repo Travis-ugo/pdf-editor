@@ -390,6 +390,87 @@ def _draw_text_item(can, sig):
         can.drawString(sig["x"], baseline, line)
 
 
+# --- Ink overlay support (pen strokes, check marks, crosses) -----------------
+# Ink is drawn as vector polylines, so it stays sharp at any zoom. Each stroke is a list of
+# [x, y] points in the item's own "base" box (0..base_width, 0..base_height, y down); the box is
+# then scaled to the item's width/height, exactly like the SVG viewBox the web UI draws it with.
+INK_MAX_POINTS = 200000
+INK_MIN_LINE_WIDTH = 0.1
+INK_MAX_LINE_WIDTH = 100
+
+
+def _process_ink_item(item):
+    """
+    Validates an ink overlay dict and returns its normalized drawing parameters,
+    or None when it has no points (nothing to draw).
+    """
+    from reportlab.lib.colors import HexColor
+
+    raw_strokes = item.get("strokes")
+    if not isinstance(raw_strokes, list):
+        raise ValueError("Ink overlay needs a list of strokes.")
+    strokes = []
+    total = 0
+    for raw in raw_strokes:
+        if not isinstance(raw, list):
+            raise ValueError("Invalid ink stroke.")
+        try:
+            points = [(float(p[0]), float(p[1])) for p in raw]
+        except (TypeError, ValueError, IndexError):
+            raise ValueError("Invalid ink stroke point.")
+        if points:
+            strokes.append(points)
+            total += len(points)
+    if total > INK_MAX_POINTS:
+        raise ValueError("Ink drawing has too many points.")
+    if not strokes:
+        return None
+
+    try:
+        base_width = float(item.get("base_width") or item.get("width") or 0)
+        base_height = float(item.get("base_height") or item.get("height") or 0)
+        line_width = float(item.get("line_width") or 2)
+    except (TypeError, ValueError):
+        raise ValueError("Invalid ink overlay dimensions.")
+    if base_width <= 0 or base_height <= 0:
+        raise ValueError("Ink overlay needs a positive size.")
+
+    try:
+        color = HexColor(str(item.get("color") or "#000000"))
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid ink color: {item.get('color')}")
+
+    return {
+        "strokes": strokes,
+        "base_width": base_width,
+        "base_height": base_height,
+        "line_width": max(INK_MIN_LINE_WIDTH, min(INK_MAX_LINE_WIDTH, line_width)),
+        "color": color,
+    }
+
+
+def _draw_ink_item(can, sig):
+    """Draws processed ink strokes into the box whose bottom-left corner is (sig['x'], sig['pdf_y'])."""
+    ink = sig["ink"]
+    # Map the base box (y down) onto the item box (PDF y up). Like the SVG viewBox, a non-uniform
+    # resize stretches the line width too, so the PDF matches the stage.
+    can.translate(sig["x"], sig["pdf_y"] + sig["height"])
+    can.scale(sig["width"] / ink["base_width"], -sig["height"] / ink["base_height"])
+    can.setStrokeColor(ink["color"])
+    can.setLineWidth(ink["line_width"])
+    can.setLineCap(1)   # round
+    can.setLineJoin(1)  # round
+    path = can.beginPath()
+    for points in ink["strokes"]:
+        path.moveTo(*points[0])
+        if len(points) == 1:
+            # A tap: a zero-length segment with a round cap renders as a dot
+            path.lineTo(points[0][0] + 0.01, points[0][1])
+        for pt in points[1:]:
+            path.lineTo(*pt)
+    can.drawPath(path, stroke=1, fill=0)
+
+
 def add_signature_to_pdf(
     input_path,
     output_path,
@@ -422,6 +503,9 @@ def add_signature_to_pdf(
                        An item with 'type': 'text' draws text instead of an image and takes
                        'text', 'font_family' (helvetica | times | courier | a key of EMBEDDED_FONTS), 'font_size' (points),
                        'bold', 'italic' and 'color' (hex) in place of 'signature_img'.
+                       An item with 'type': 'ink' draws vector strokes (pen drawings, check marks)
+                       and takes 'strokes' ([[[x, y], ...], ...] in a base box), 'base_width',
+                       'base_height', 'line_width' (in base units) and 'color' (hex).
     :param rotation: Rotation angle in degrees clockwise (0 to 360)
     """
     import io
@@ -460,13 +544,17 @@ def add_signature_to_pdf(
     processed_sigs = []
     for sig_item in signatures:
         is_text = sig_item.get("type") == "text"
+        is_ink = sig_item.get("type") == "ink"
+        text_props = ink_props = img_obj = None
         if is_text:
             text_props = _process_text_item(sig_item)
             if text_props is None:
                 continue
-            img_obj = None
+        elif is_ink:
+            ink_props = _process_ink_item(sig_item)
+            if ink_props is None:
+                continue
         else:
-            text_props = None
             img_obj = _process_image_input(sig_item.get("signature_img") or signature_img)
         spec = sig_item.get("pages_spec")
         if spec is None or spec == "":
@@ -481,6 +569,7 @@ def add_signature_to_pdf(
         processed_sigs.append({
             "img_obj": img_obj,
             "text": text_props,
+            "ink": ink_props,
             "target_indices": target_idxs,
             "x": float(sig_item.get("x", 50)),
             "y": float(sig_item.get("y", 50)),
@@ -527,6 +616,8 @@ def add_signature_to_pdf(
                 if sig["text"]:
                     _draw_text_item(can, {**sig["text"], "x": sig["x"], "pdf_y": pdf_y,
                                           "width": sig["width"], "height": sig["height"]})
+                elif sig["ink"]:
+                    _draw_ink_item(can, {**sig, "pdf_y": pdf_y})
                 else:
                     can.drawImage(
                         ImageReader(sig["img_obj"]),

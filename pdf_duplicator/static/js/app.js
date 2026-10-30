@@ -141,6 +141,27 @@ document.addEventListener("DOMContentLoaded", () => {
     let strokeWidth = 3;
     let canvasScale = 1; // backing-buffer px per CSS px for sigCanvas; keeps drawn strokes sharp on HiDPI screens
 
+    // Pen & check mark tools (see "Pen & Marks" below). Declared up here because the toolbar and
+    // overlay renderers that read them are defined earlier in this file than the tools themselves.
+    const toolPenBtn = document.getElementById("toolPenBtn");
+    const toolMarkBtn = document.getElementById("toolMarkBtn");
+    const inkBanner = document.getElementById("inkBanner");
+    const inkBannerText = document.getElementById("inkBannerText");
+    const stopInkBtn = document.getElementById("stopInkBtn");
+    const inkEditor = document.getElementById("inkEditor");
+    const inkEditorHint = document.getElementById("inkEditorHint");
+    const markShapeRow = document.getElementById("markShapeRow");
+    const markShapeBtns = document.querySelectorAll(".mark-shape-btn");
+    const inkColorBtns = document.querySelectorAll(".ink-color-btn");
+    const inkWidthSlider = document.getElementById("inkWidthSlider");
+    const inkWidthValue = document.getElementById("inkWidthValue");
+    let activeInkTool = null; // null | "pen" | "mark"
+    let lastInkId = null;     // pen item the next nearby stroke prefers to join (one handwritten word/line = one item)
+    const penSessionIds = new Set(); // pen items drawn since the tool was picked; only these get joined
+    const penSettings = { color: "#000000", width: 1.5 };
+    // A new mark copies the size/weight of the last one placed or adjusted, so a form's boxes match.
+    const markSettings = { shape: "check", size: 12, lineRatio: 0.13 };
+
     // --- PWA Installation Event Listener ---
     let deferredInstallPrompt = null;
     window.addEventListener("beforeinstallprompt", (e) => {
@@ -616,6 +637,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let draggedSigUrl = null;
 
     function setStampMode(active) {
+        if (active) setInkTool(null);
         isStampModeActive = active;
         if (stageViewport) {
             stageViewport.classList.toggle("stamp-active", active);
@@ -855,7 +877,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const overlay = document.createElement("div");
             const isText = sig.type === "text";
-            overlay.className = `signature-overlay ${isText ? 'text-overlay' : ''} ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
+            const isInk = sig.type === "ink";
+            overlay.className = `signature-overlay ${isText ? 'text-overlay' : ''} ${isInk ? 'ink-overlay' : ''} ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
             overlay.dataset.sigId = sig.id;
             overlay.style.left = `${sig.x * scale}px`;
             overlay.style.top = `${sig.y * scale}px`;
@@ -869,7 +892,7 @@ document.addEventListener("DOMContentLoaded", () => {
             overlay.innerHTML = `
                 <div class="rot-live-tooltip hidden">0°</div>
                 <div class="overlay-inner">
-                    ${isText ? buildTextSvg(sig) : `<img src="${sig.dataUrl}" alt="Signature">`}
+                    ${isText ? buildTextSvg(sig) : (isInk ? buildInkSvg(sig) : `<img src="${sig.dataUrl}" alt="Signature">`)}
                 </div>
                 <!-- Word-style corner rotation: hovering just outside a corner handle (not on it)
                      swaps to a rotate cursor/icon; the handle itself still scales. No handle is
@@ -905,6 +928,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             pdfCanvasContainer.appendChild(overlay);
         });
+        syncInkPanel();
     }
 
     // --- Right-Click Item Menu & Keyboard Actions for Placed Items ---
@@ -1135,9 +1159,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 const rotRad = (initRot * Math.PI) / 180;
                 const localPointer = documentToLocal(currPointerDoc.x, currPointerDoc.y, initCenter, rotRad);
                 const ratio = sig.aspectRatio || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
-                // Small text boxes are legitimately narrower than a signature would ever be
-                const minW = sig.type === "text" ? 6 : 20;
-                const minH = sig.type === "text" ? 4 : 10;
+                // Small text boxes and check marks are legitimately smaller than a signature would ever be
+                const small = sig.type === "text" || sig.type === "ink";
+                const minW = small ? 6 : 20;
+                const minH = small ? 4 : 10;
 
                 const L = -initW / 2;
                 const R = initW / 2;
@@ -1271,6 +1296,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (sigOpacitySlider) sigOpacitySlider.value = Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100);
         if (sigOpacityValue) sigOpacityValue.textContent = `${Math.round((sig.opacity !== undefined ? sig.opacity : 1.0) * 100)}%`;
         syncTextEditor();
+        syncInkPanel();
     }
 
     function syncRotationInputs(deg) {
@@ -1358,8 +1384,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
-            const newW = Math.max(20, parseFloat(sigWInput.value) || 150);
-            const newH = Math.max(10, Math.round(newW / ratio));
+            const isInk = sig && sig.type === "ink";
+            const newW = Math.max(isInk ? 4 : 20, parseFloat(sigWInput.value) || 150);
+            const newH = Math.max(isInk ? 4 : 10, Math.round(newW / ratio));
             sigHInput.value = newH;
             store.updateSignatureOnDoc(selectedSigId, {
                 width: newW,
@@ -1376,8 +1403,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
-            const newH = Math.max(10, parseFloat(sigHInput.value) || 60);
-            const newW = Math.max(20, Math.round(newH * ratio));
+            const isInk = sig && sig.type === "ink";
+            const newH = Math.max(isInk ? 4 : 10, parseFloat(sigHInput.value) || 60);
+            const newW = Math.max(isInk ? 4 : 20, Math.round(newH * ratio));
             sigWInput.value = newW;
             store.updateSignatureOnDoc(selectedSigId, {
                 width: newW,
@@ -1876,6 +1904,17 @@ document.addEventListener("DOMContentLoaded", () => {
                     font_size: num(s.fontSize, 16),
                     bold: !!s.bold,
                     italic: !!s.italic,
+                    color: s.color || "#000000"
+                };
+            }
+            if (s.type === "ink") {
+                return {
+                    ...common,
+                    type: "ink",
+                    strokes: s.strokes || [],
+                    base_width: num(s.baseWidth, common.width),
+                    base_height: num(s.baseHeight, common.height),
+                    line_width: num(s.lineWidth, 1.5),
                     color: s.color || "#000000"
                 };
             }
@@ -2538,7 +2577,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (store.state.currentMode === "sign") {
             const activeSigs = store.state.signature.activeSignaturesOnDoc;
             if (!activeSigs || activeSigs.length === 0) {
-                showStatus("Please add at least one signature to the document first.", "error");
+                showStatus("Add a signature, text, drawing or check mark to the document first.", "error");
                 actionSpinner.classList.add("hidden");
                 processActionBtn.disabled = false;
                 return;
@@ -2547,6 +2586,9 @@ document.addEventListener("DOMContentLoaded", () => {
             endpoint = "/api/sign";
 
             formData.append("signatures_json", JSON.stringify(buildOverlaysPayload(activeSigs)));
+            if (customOutputFilenameInput && customOutputFilenameInput.value.trim()) {
+                formData.append("custom_filename", customOutputFilenameInput.value.trim());
+            }
 
         } else if (store.state.currentMode === "duplicate") {
             endpoint = "/api/duplicate";
@@ -2678,13 +2720,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const toolPreviewBtn = document.getElementById("toolPreviewBtn");
 
     function syncToolbar() {
-        if (toolMoveBtn) toolMoveBtn.classList.toggle("active", !isPanModeActive && !isStampModeActive);
+        if (toolMoveBtn) toolMoveBtn.classList.toggle("active", !isPanModeActive && !isStampModeActive && !activeInkTool);
         if (toolStampBtn) toolStampBtn.classList.toggle("active", isStampModeActive);
+        if (toolPenBtn) toolPenBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "pen");
+        if (toolMarkBtn) toolMarkBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "mark");
     }
 
     function selectMoveTool() {
         if (isPanModeActive) setPanMode(false);
         if (isStampModeActive) setStampMode(false);
+        setInkTool(null);
         syncToolbar();
     }
 
@@ -2716,6 +2761,11 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (key === "h") setPanMode(!isPanModeActive);
         else if (key === "t" && store.state.currentMode === "sign") { e.preventDefault(); addTextBtn && addTextBtn.click(); }
         else if (key === "s" && store.state.currentMode === "sign") selectStampTool();
+        else if (key === "p" && store.state.currentMode === "sign") setInkTool(activeInkTool === "pen" ? null : "pen");
+        else if ((key === "k" || key === "x") && store.state.currentMode === "sign") {
+            setMarkShape(key === "k" ? "check" : "cross");
+            setInkTool("mark");
+        }
     });
 
     function setPanMode(active) {
@@ -2829,6 +2879,312 @@ document.addEventListener("DOMContentLoaded", () => {
             panY -= dy * unit;
             applyStageTransform();
         }, { passive: false });
+    }
+
+    // --- Pen & Marks ---
+    // Pen strokes and check marks are "ink" items: vector polylines (in PDF points) that core.py
+    // draws as real PDF paths, so they stay sharp at any zoom, unlike a pasted image. Strokes drawn
+    // close together join one item, so a handwritten word or line moves and resizes as one piece.
+    const INK_JOIN_GAP = 40;      // pt: a stroke starting this close to the last pen item joins it
+    const INK_MIN_STEP = 0.35;    // pt: closer pointer samples are dropped
+    const MARK_SHAPES = {
+        check: [[[0.12, 0.55], [0.4, 0.82], [0.9, 0.18]]],
+        cross: [[[0.2, 0.2], [0.8, 0.8]], [[0.8, 0.2], [0.2, 0.8]]]
+    };
+    const round2 = (v) => Math.round(v * 100) / 100;
+
+    function buildInkSvg(sig) {
+        const d = (sig.strokes || []).map(s => s.length === 1
+            ? `M${s[0][0]} ${s[0][1]}l0.01 0`
+            : "M" + s.map(p => `${p[0]} ${p[1]}`).join("L")).join("");
+        return `<svg class="ink-overlay-svg" viewBox="0 0 ${sig.baseWidth} ${sig.baseHeight}" preserveAspectRatio="none">
+                    <path d="${d}" fill="none" stroke="${escapeHtml(sig.color || "#000000")}" stroke-width="${sig.lineWidth}"
+                          stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }
+
+    // How much an item's strokes are scaled on the page (1 until it's resized).
+    function inkScale(sig) {
+        if (!sig.baseWidth || !sig.baseHeight) return 1;
+        return Math.sqrt((sig.width / sig.baseWidth) * (sig.height / sig.baseHeight));
+    }
+
+    // Box + base-relative strokes for point lists given in page coordinates.
+    function inkGeometry(pageStrokes, lineWidth) {
+        const pad = lineWidth / 2 + 1;
+        const all = pageStrokes.flat();
+        const minX = Math.min(...all.map(p => p[0])), maxX = Math.max(...all.map(p => p[0]));
+        const minY = Math.min(...all.map(p => p[1])), maxY = Math.max(...all.map(p => p[1]));
+        const x = round2(minX - pad), y = round2(minY - pad);
+        const width = round2(maxX - minX + 2 * pad), height = round2(maxY - minY + 2 * pad);
+        return {
+            x, y, width, height,
+            baseWidth: width,
+            baseHeight: height,
+            aspectRatio: width / height,
+            strokes: pageStrokes.map(s => s.map(([px, py]) => [round2(px - x), round2(py - y)]))
+        };
+    }
+
+    // Chaikin corner cutting: turns jittery pointer samples into a smooth curve (still a polyline,
+    // so the stage and the PDF draw exactly the same thing).
+    function smoothStroke(points, passes = 2) {
+        let pts = points;
+        for (let n = 0; n < passes && pts.length > 2; n++) {
+            const out = [pts[0]];
+            for (let i = 0; i < pts.length - 1; i++) {
+                const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
+                out.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1], [0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1]);
+            }
+            out.push(pts[pts.length - 1]);
+            pts = out;
+        }
+        return pts;
+    }
+
+    function markStrokes(shape, size) {
+        return MARK_SHAPES[shape].map(s => s.map(([u, v]) => [round2(u * size), round2(v * size)]));
+    }
+
+    function getSelectedInkItem() {
+        const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+        return sig && sig.type === "ink" ? sig : null;
+    }
+
+    function setInkTool(tool) {
+        if (tool && (store.state.currentMode !== "sign" || !store.state.document.totalPages)) {
+            showStatus("Upload a PDF first, then draw or tick boxes on it.", "error");
+            tool = null;
+        }
+        activeInkTool = tool;
+        lastInkId = null;
+        penSessionIds.clear();
+        if (tool && isStampModeActive) setStampMode(false);
+        if (tool && isPanModeActive) setPanMode(false);
+        if (stageViewport) {
+            stageViewport.classList.toggle("pen-active", tool === "pen");
+            stageViewport.classList.toggle("mark-active", tool === "mark");
+        }
+        if (inkBanner) {
+            inkBanner.classList.toggle("hidden", !tool);
+            inkBannerText.innerHTML = tool === "pen"
+                ? "Draw or write on the page · <kbd>Esc</kbd> when done"
+                : `Click a box to place a ${markSettings.shape === "check" ? "check mark" : "cross"} · <kbd>Esc</kbd> when done`;
+        }
+        syncInkPanel();
+        syncToolbar();
+    }
+
+    function setMarkShape(shape) {
+        markSettings.shape = shape;
+        if (activeInkTool === "mark") setInkTool("mark"); // refresh the banner text
+        else syncInkPanel();
+    }
+
+    // Shows the pen/mark controls for the selected ink item, or for the active tool's next item.
+    function syncInkPanel() {
+        if (!inkEditor) return;
+        const sel = getSelectedInkItem();
+        const show = !!sel || !!activeInkTool;
+        inkEditor.classList.toggle("hidden", !show);
+        if (inkEditorHint) inkEditorHint.classList.toggle("hidden", show);
+        if (!show) return;
+
+        const isMark = sel ? !!sel.shape : activeInkTool === "mark";
+        if (sel && sel.shape) {
+            // The next mark matches the last one adjusted
+            markSettings.size = Math.round(sel.width * 10) / 10;
+            markSettings.lineRatio = (sel.lineWidth * inkScale(sel)) / sel.width;
+        }
+        const color = sel ? sel.color : penSettings.color;
+        const width = sel ? sel.lineWidth * inkScale(sel) : (isMark ? markSettings.size * markSettings.lineRatio : penSettings.width);
+        const shape = sel ? sel.shape : markSettings.shape;
+
+        markShapeRow.classList.toggle("hidden", !isMark);
+        markShapeBtns.forEach(b => b.classList.toggle("active", b.dataset.shape === shape));
+        inkColorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === color));
+        if (document.activeElement !== inkWidthSlider) inkWidthSlider.value = width;
+        inkWidthValue.textContent = `${Math.round(width * 100) / 100} pt`;
+    }
+
+    // Joins `points` (page coords) to a nearby item drawn in this pen session with the same pen on
+    // the same page (the most recent one first); otherwise starts a new item.
+    function commitPenStroke(points) {
+        const items = store.state.signature.activeSignaturesOnDoc;
+        const page = store.state.document.currentPage;
+        const lw = penSettings.width;
+        const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+        const joinable = (t) => penSessionIds.has(t.id) && !t.shape && t.page === page
+            && t.color === penSettings.color && t.lineWidth === lw && !t.rotation
+            && Math.abs(t.width - t.baseWidth) < 0.01 && Math.abs(t.height - t.baseHeight) < 0.01
+            && Math.min(...xs) <= t.x + t.width + INK_JOIN_GAP && Math.max(...xs) >= t.x - INK_JOIN_GAP
+            && Math.min(...ys) <= t.y + t.height + INK_JOIN_GAP && Math.max(...ys) >= t.y - INK_JOIN_GAP;
+        const last = items.find(s => s.id === lastInkId);
+        const target = (last && joinable(last)) ? last : [...items].reverse().find(joinable);
+
+        if (target) {
+            lastInkId = target.id;
+            const existing = target.strokes.map(s => s.map(([x, y]) => [x + target.x, y + target.y]));
+            store.updateSignatureOnDoc(target.id, inkGeometry([...existing, points], lw), true);
+        } else {
+            const sig = store.addInkToDoc({ ...inkGeometry([points], lw), color: penSettings.color, lineWidth: lw, page });
+            lastInkId = sig.id;
+            penSessionIds.add(sig.id);
+        }
+    }
+
+    function placeMark(clientX, clientY) {
+        const doc = store.state.document;
+        const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+        const pos = screenToDocument(clientX, clientY);
+        const size = markSettings.size;
+        const sig = store.addInkToDoc({
+            shape: markSettings.shape,
+            strokes: markStrokes(markSettings.shape, size),
+            baseWidth: size,
+            baseHeight: size,
+            width: size,
+            height: size,
+            aspectRatio: 1,
+            lineWidth: round2(size * markSettings.lineRatio),
+            color: penSettings.color,
+            page: doc.currentPage,
+            x: round2(Math.max(0, Math.min(pageDim.width - size, pos.x - size / 2))),
+            y: round2(Math.max(0, Math.min(pageDim.height - size, pos.y - size / 2)))
+        });
+        selectedSigId = sig.id;
+        syncInspectorInputs(sig);
+        renderStageSignatures();
+    }
+
+    if (toolPenBtn) toolPenBtn.addEventListener("click", () => setInkTool(activeInkTool === "pen" && !isPanModeActive ? null : "pen"));
+    if (toolMarkBtn) toolMarkBtn.addEventListener("click", () => setInkTool(activeInkTool === "mark" && !isPanModeActive ? null : "mark"));
+    if (stopInkBtn) stopInkBtn.addEventListener("click", () => setInkTool(null));
+    store.subscribe("mode:changed", (mode) => { if (mode !== "sign") setInkTool(null); });
+    store.subscribe("document:reset", () => setInkTool(null));
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && activeInkTool && !isTypingTarget(document.activeElement)) setInkTool(null);
+    });
+
+    // Drawing. Capture phase on the viewport, so a stroke can start on top of an existing item
+    // without dragging it; pointer events give stylus/touch support and coalesced samples.
+    if (stageViewport && pdfCanvasContainer) {
+        let stroke = null; // { pointerId, points, svg, line }
+        const NS = "http://www.w3.org/2000/svg";
+
+        const pagePoint = (e) => {
+            const doc = store.state.document;
+            const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+            const p = screenToDocument(e.clientX, e.clientY);
+            return [Math.max(0, Math.min(pageDim.width, p.x)), Math.max(0, Math.min(pageDim.height, p.y))];
+        };
+
+        const wantsPen = (e) => activeInkTool === "pen" && !isPanModeActive && !isPanning
+            && e.button === 0 && !!e.target.closest("#pdfCanvasContainer");
+
+        stageViewport.addEventListener("pointerdown", (e) => {
+            if (!wantsPen(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            closeItemContextMenu();
+            stageViewport.setPointerCapture(e.pointerId);
+
+            const doc = store.state.document;
+            const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+            const svg = document.createElementNS(NS, "svg");
+            svg.setAttribute("class", "ink-live-svg");
+            svg.setAttribute("viewBox", `0 0 ${pageDim.width} ${pageDim.height}`);
+            svg.style.width = `${pdfPageImg.clientWidth}px`;
+            svg.style.height = `${pdfPageImg.clientHeight}px`;
+            const line = document.createElementNS(NS, "polyline");
+            line.setAttribute("fill", "none");
+            line.setAttribute("stroke", penSettings.color);
+            line.setAttribute("stroke-width", penSettings.width);
+            line.setAttribute("stroke-linecap", "round");
+            line.setAttribute("stroke-linejoin", "round");
+            svg.appendChild(line);
+            pdfCanvasContainer.appendChild(svg);
+
+            const first = pagePoint(e);
+            stroke = { pointerId: e.pointerId, points: [first], svg, line };
+            line.setAttribute("points", `${first[0]},${first[1]} ${first[0] + 0.01},${first[1]}`);
+        }, true);
+
+        // Belt and braces: browsers that still send a compatibility mousedown must not start a
+        // drag or pan underneath the pen.
+        stageViewport.addEventListener("mousedown", (e) => {
+            if (wantsPen(e)) { e.preventDefault(); e.stopPropagation(); }
+        }, true);
+
+        stageViewport.addEventListener("pointermove", (e) => {
+            if (!stroke || e.pointerId !== stroke.pointerId) return;
+            const samples = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+            let added = false;
+            (samples.length ? samples : [e]).forEach(ev => {
+                const p = pagePoint(ev);
+                const last = stroke.points[stroke.points.length - 1];
+                if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= INK_MIN_STEP / zoomLevel) {
+                    stroke.points.push(p);
+                    added = true;
+                }
+            });
+            if (added) stroke.line.setAttribute("points", stroke.points.map(p => `${p[0]},${p[1]}`).join(" "));
+        });
+
+        const endStroke = (e) => {
+            if (!stroke || e.pointerId !== stroke.pointerId) return;
+            const { points, svg } = stroke;
+            stroke = null;
+            svg.remove();
+            if (e.type === "pointercancel") return;
+            commitPenStroke(smoothStroke(points).map(([x, y]) => [round2(x), round2(y)]));
+        };
+        stageViewport.addEventListener("pointerup", endStroke);
+        stageViewport.addEventListener("pointercancel", endStroke);
+
+        // Check marks: click empty page to place; clicking an existing item still selects/moves it.
+        pdfCanvasContainer.addEventListener("click", (e) => {
+            if (activeInkTool !== "mark" || isPanModeActive || store.state.currentMode !== "sign") return;
+            if (e.target.closest(".signature-overlay")) return;
+            placeMark(e.clientX, e.clientY);
+        });
+    }
+
+    markShapeBtns.forEach(btn => btn.addEventListener("click", () => {
+        const shape = btn.dataset.shape;
+        setMarkShape(shape);
+        const sel = getSelectedInkItem();
+        if (sel && sel.shape && sel.shape !== shape) {
+            store.updateSignatureOnDoc(sel.id, { shape, strokes: markStrokes(shape, sel.baseWidth) }, true);
+        }
+    }));
+
+    // Color is shared by the pen and marks.
+    inkColorBtns.forEach(btn => btn.addEventListener("click", () => {
+        penSettings.color = btn.dataset.color;
+        lastInkId = null;
+        const sel = getSelectedInkItem();
+        if (sel) store.updateSignatureOnDoc(sel.id, { color: btn.dataset.color }, true);
+        else syncInkPanel();
+    }));
+
+    if (inkWidthSlider) {
+        // "input" fires continuously while dragging: one undo step per drag
+        let widthSnapshotTaken = false;
+        inkWidthSlider.addEventListener("input", () => {
+            const v = parseFloat(inkWidthSlider.value) || 1.5;
+            inkWidthValue.textContent = `${v} pt`;
+            const sel = getSelectedInkItem();
+            if (sel) {
+                if (!widthSnapshotTaken) { store.recordStateSnapshot(); widthSnapshotTaken = true; }
+                store.updateSignatureOnDoc(sel.id, { lineWidth: round2(v / inkScale(sel)) });
+            } else if (activeInkTool === "mark") {
+                markSettings.lineRatio = v / markSettings.size;
+            } else {
+                penSettings.width = v;
+                lastInkId = null;
+            }
+        });
+        inkWidthSlider.addEventListener("change", () => { widthSnapshotTaken = false; inkWidthSlider.blur(); });
     }
 
     // --- Stage Canvas Zoom & Global Page Zoom Interception ---
