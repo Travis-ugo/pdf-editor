@@ -118,6 +118,21 @@ python run.py duplicate-pages input.pdf output.pdf --pages "1-3,5" --count 3
 
 ---
 
+## Deploying (Render)
+
+The repo includes a `Dockerfile` (Python + LibreOffice, served by gunicorn) and a `render.yaml`
+Blueprint. In Render: **New + → Blueprint**, pick this repository, and apply. Health check: `/healthz`.
+
+On a server the app runs in *hosted mode* (automatic on Render, or set `PDF_STUDIO_HOSTED=1`):
+
+- Each saved PDF gets a random, unguessable download link, so visitors can't fetch each other's files.
+- Uploads and saved files are deleted after `PDF_STUDIO_FILE_TTL` seconds (default 3 hours).
+- Files live in the container's temp folder (`PDF_STUDIO_DATA_DIR` to change it), not `output/`.
+
+Run locally, none of this applies: saves still go to `output/` and are kept.
+
+To try the production server locally: `pip install -r requirements.txt && gunicorn pdf_duplicator.web:app`.
+
 ## Running Tests
 
 Install the test tools once, then run everything from the project root:

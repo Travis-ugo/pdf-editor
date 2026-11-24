@@ -31,15 +31,69 @@ def request_entity_too_large(error):
     return jsonify({"error": "The uploaded file or signature data is too large (max 100 MB)."}), 413
 
 
-# Temporary session storage directory for PDF preview processing
-UPLOAD_TEMP_DIR = tempfile.mkdtemp(prefix="pdf_duplicator_web_")
-
+import re
+import time
 import shutil
+import secrets
+import threading
+from urllib.parse import quote
 
-# Project Output directory
-OUTPUT_DIR = os.path.join(os.path.dirname(BASE_DIR), "output")
+# Hosted mode: the app is on a public server (Render sets RENDER=true; PDF_STUDIO_HOSTED=1 forces
+# it elsewhere). Then saved files are private to whoever saved them -- each one lives under a random
+# token in its URL, so nobody can fetch another visitor's "contract.pdf" by guessing the name --
+# and uploads/saves are deleted after FILE_TTL_SECONDS so the server's disk doesn't fill up.
+# Run locally, nothing changes: saves go to the project's output/ folder and are kept.
+HOSTED = os.environ.get("PDF_STUDIO_HOSTED") == "1" or bool(os.environ.get("RENDER"))
+FILE_TTL_SECONDS = int(os.environ.get("PDF_STUDIO_FILE_TTL", 3 * 3600))
+
+if HOSTED:
+    # Fixed folders (not a per-process mkdtemp) so every server worker sees the same uploads.
+    _data_dir = os.environ.get("PDF_STUDIO_DATA_DIR") or os.path.join(tempfile.gettempdir(), "pdf_studio")
+    UPLOAD_TEMP_DIR = os.path.join(_data_dir, "uploads")
+    OUTPUT_DIR = os.path.join(_data_dir, "output")
+    os.makedirs(UPLOAD_TEMP_DIR, exist_ok=True)
+else:
+    # Temporary session storage directory for PDF preview processing
+    UPLOAD_TEMP_DIR = tempfile.mkdtemp(prefix="pdf_duplicator_web_")
+    # Project Output directory
+    OUTPUT_DIR = os.path.join(os.path.dirname(BASE_DIR), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 USER_DOWNLOADS_DIR = os.path.expanduser("~/Downloads")
+
+_last_sweep = 0.0
+_sweep_lock = threading.Lock()
+
+
+def sweep_expired_files(now=None):
+    """Hosted mode only: deletes uploads and saved files older than FILE_TTL_SECONDS."""
+    now = now or time.time()
+    for root_dir in (UPLOAD_TEMP_DIR, OUTPUT_DIR):
+        for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                try:
+                    if now - os.path.getmtime(path) > FILE_TTL_SECONDS:
+                        os.remove(path)
+                except OSError:
+                    pass
+            if dirpath != root_dir:
+                try:
+                    os.rmdir(dirpath)  # only succeeds once the token folder is empty
+                except OSError:
+                    pass
+
+
+@app.before_request
+def _maybe_sweep():
+    global _last_sweep
+    if not HOSTED or time.time() - _last_sweep < 600:
+        return
+    if _sweep_lock.acquire(blocking=False):
+        try:
+            _last_sweep = time.time()
+            sweep_expired_files()
+        finally:
+            _sweep_lock.release()
 
 def save_to_user_downloads(src_path, filename):
     """Returns the generated output path. File download is handled directly by browser."""
@@ -52,7 +106,6 @@ def sanitize_output_filename(default_name, custom_name=None):
     if not custom_name or not str(custom_name).strip():
         return default_name
 
-    import re
     clean_name = os.path.basename(str(custom_name).strip())
     clean_name = re.sub(r'[^\w\s\.\-]', '_', clean_name).strip()
     if not clean_name:
@@ -67,15 +120,22 @@ def sanitize_output_filename(default_name, custom_name=None):
 
 def unique_output_path(filename):
     """
-    (filename, path) in OUTPUT_DIR that doesn't overwrite an existing file: 'contract.pdf' becomes
-    'contract (1).pdf', 'contract (2).pdf', ... the way browsers name repeated downloads.
+    (filename, path, download_url) for a new file in OUTPUT_DIR that doesn't overwrite an existing
+    one: 'contract.pdf' becomes 'contract (1).pdf', 'contract (2).pdf', ... the way browsers name
+    repeated downloads. In hosted mode the file goes in its own random-token folder instead, so its
+    URL can't be guessed from the name.
     """
+    if HOSTED:
+        token = secrets.token_urlsafe(16)
+        folder = os.path.join(OUTPUT_DIR, token)
+        os.makedirs(folder)
+        return filename, os.path.join(folder, filename), f"/output/{token}/{quote(filename)}"
     stem, ext = os.path.splitext(filename)
     candidate, n = filename, 0
     while os.path.exists(os.path.join(OUTPUT_DIR, candidate)):
         n += 1
         candidate = f"{stem} ({n}){ext}"
-    return candidate, os.path.join(OUTPUT_DIR, candidate)
+    return candidate, os.path.join(OUTPUT_DIR, candidate), f"/output/{quote(candidate)}"
 
 
 def render_page_preview(page, zoom, max_side):
@@ -102,6 +162,12 @@ def render_editor_preview(page):
     # This is the background the editor draws signatures/text onto, so it needs to stay sharp on
     # HiDPI (Retina) screens: zoom 2.0 renders at "@2x" density, matching typical Retina DPR.
     return render_page_preview(page, 2.0, 2400)
+
+
+@app.route("/healthz")
+def healthz():
+    """Liveness check for the hosting platform (Render)."""
+    return jsonify({"ok": True})
 
 
 @app.route("/")
@@ -166,7 +232,7 @@ def _safe_join(directory, filename):
     return candidate if os.path.isfile(candidate) else None
 
 
-@app.route("/output/<filename>")
+@app.route("/output/<path:filename>")
 def download_output_file(filename):
     """
     Serves generated PDF files directly from the output directory.
@@ -378,7 +444,7 @@ def sign_pdf_endpoint():
     default_output_name = f"signed_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_filename, output_path = unique_output_path(output_filename)
+    output_filename, output_path, download_url = unique_output_path(output_filename)
 
     try:
         add_signature_to_pdf(
@@ -397,7 +463,6 @@ def sign_pdf_endpoint():
 
 
         saved_user_path = save_to_user_downloads(output_path, output_filename)
-        download_url = f"/output/{output_filename}"
 
         if request.headers.get("Accept") == "application/json":
             return jsonify({
@@ -448,7 +513,7 @@ def duplicate_pdf_endpoint():
     default_output_name = f"duplicated_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_filename, output_path = unique_output_path(output_filename)
+    output_filename, output_path, download_url = unique_output_path(output_filename)
 
     try:
         duplicate_pages(
@@ -461,7 +526,6 @@ def duplicate_pdf_endpoint():
         )
 
         saved_user_path = save_to_user_downloads(output_path, output_filename)
-        download_url = f"/output/{output_filename}"
 
         if request.headers.get("Accept") == "application/json":
             return jsonify({
@@ -505,7 +569,7 @@ def clone_pdf_endpoint():
     default_output_name = f"cloned_{file_id[:6]}.pdf"
     custom_name = request.form.get("custom_filename") or request.form.get("output_filename")
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_filename, output_path = unique_output_path(output_filename)
+    output_filename, output_path, download_url = unique_output_path(output_filename)
 
     try:
         duplicate_pdf(
@@ -515,7 +579,6 @@ def clone_pdf_endpoint():
         )
 
         saved_user_path = save_to_user_downloads(output_path, output_filename)
-        download_url = f"/output/{output_filename}"
 
         if request.headers.get("Accept") == "application/json":
             return jsonify({
@@ -590,13 +653,12 @@ def merge_pdf_endpoint():
 
     default_output_name = f"merged_{uuid.uuid4().hex[:6]}.pdf"
     output_filename = sanitize_output_filename(default_output_name, custom_name)
-    output_filename, output_path = unique_output_path(output_filename)
+    output_filename, output_path, download_url = unique_output_path(output_filename)
 
     try:
         merge_pdfs(pdf_inputs, output_path)
 
         saved_user_path = save_to_user_downloads(output_path, output_filename)
-        download_url = f"/output/{output_filename}"
 
         if request.headers.get("Accept") == "application/json":
             return jsonify({

@@ -1,0 +1,12 @@
+.git
+.venv
+.pytest_cache
+.claude
+output
+tests
+*.egg-info
+**/__pycache__
+**/*.pyc
+.DS_Store
+*.pdf
+TODO.md

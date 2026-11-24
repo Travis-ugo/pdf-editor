@@ -479,5 +479,63 @@ class TestPreview(WebTestCase):
         self.assertEqual(self.client.post("/api/preview-pdf", data={}).status_code, 400)
 
 
+class TestHostedMode(WebTestCase):
+    """On a public server, saved files must not be reachable by guessing their names."""
+
+    def setUp(self):
+        super().setUp()
+        self._hosted = web.HOSTED
+        web.HOSTED = True
+
+    def tearDown(self):
+        web.HOSTED = self._hosted
+        super().tearDown()
+
+    def test_saved_file_url_has_unguessable_token(self):
+        fid = self.file_id()
+        res = self.post_json("/api/duplicate", {"file_id": fid, "count": 2, "custom_filename": "contract"})
+        self.assertEqual(res.status_code, 200, res.get_json())
+        url = res.get_json()["download_url"]
+        token = url.split("/")[2]
+        self.assertGreaterEqual(len(token), 16)
+        self.assertTrue(url.endswith("/contract.pdf"))
+
+        dl = self.client.get(url)
+        self.assertEqual(dl.status_code, 200)
+        self.assertTrue(dl.data.startswith(b"%PDF"))
+        dl.close()
+        # The bare name, or someone else's token, gets nothing.
+        self.assertEqual(self.client.get("/output/contract.pdf").status_code, 404)
+        self.assertEqual(self.client.get("/output/AAAAAAAAAAAAAAAAAAAAAA/contract.pdf").status_code, 404)
+        with open(os.path.join(self.tmp.name, "secret.pdf"), "wb") as f:
+            f.write(b"%PDF-secret")
+        self.assertEqual(self.client.get(f"/output/{token}/../../secret.pdf").status_code, 404)
+        self.assertEqual(self.client.get("/output/%2E%2E/secret.pdf").status_code, 404)
+
+        # A second save with the same name doesn't collide or get renamed.
+        res2 = self.post_json("/api/duplicate", {"file_id": fid, "count": 2, "custom_filename": "contract"})
+        self.assertNotEqual(res2.get_json()["download_url"], url)
+        self.assertEqual(res2.get_json()["filename"], "contract.pdf")
+
+    def test_sweep_deletes_only_expired_files(self):
+        fid = self.file_id()
+        url = self.post_json("/api/clone", {"file_id": fid}).get_json()["download_url"]
+        saved = os.path.join(self.output_dir, *url.split("/")[2:])
+        upload = os.path.join(self.upload_dir, f"{fid}.pdf")
+        self.assertTrue(os.path.exists(saved) and os.path.exists(upload))
+
+        web.sweep_expired_files()
+        self.assertTrue(os.path.exists(saved) and os.path.exists(upload))
+
+        web.sweep_expired_files(now=os.path.getmtime(saved) + web.FILE_TTL_SECONDS + 1)
+        self.assertFalse(os.path.exists(saved))
+        self.assertFalse(os.path.exists(os.path.dirname(saved)))  # empty token folder removed too
+        self.assertFalse(os.path.exists(upload))
+        self.assertTrue(os.path.isdir(self.output_dir))
+
+    def test_healthz(self):
+        self.assertEqual(self.client.get("/healthz").get_json(), {"ok": True})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -985,7 +985,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="resize-handle handle-sw" data-handle="sw"></div>
                 <div class="resize-handle handle-s" data-handle="s"></div>
                 <div class="resize-handle handle-se" data-handle="se"></div>
+                <!-- Touch screens have no right-click or Delete key: this opens the item menu.
+                     Only shown on the selected item, and only on touch devices (see CSS). -->
+                <button type="button" class="overlay-menu-btn" aria-label="Item actions" title="Item actions">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                </button>
             `;
+
+            overlay.querySelector(".overlay-menu-btn").addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const r = e.currentTarget.getBoundingClientRect();
+                openItemContextMenu(sig.id, r.left, r.bottom + 6);
+            });
 
             if (isText) {
                 overlay.addEventListener("dblclick", () => focusTextEditor());
@@ -1076,6 +1088,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         // Keep clicks inside the menu from reaching the stage (pan/deselect) handlers.
         menu.addEventListener("mousedown", (e) => e.stopPropagation());
+        menu.addEventListener("pointerdown", (e) => e.stopPropagation());
         menu.addEventListener("contextmenu", (e) => e.preventDefault());
 
         document.body.appendChild(menu);
@@ -1088,11 +1101,17 @@ document.addEventListener("DOMContentLoaded", () => {
         itemContextMenu = menu;
     }
 
-    window.addEventListener("mousedown", (e) => {
+    window.addEventListener("pointerdown", (e) => {
         if (itemContextMenu && !itemContextMenu.contains(e.target)) closeItemContextMenu();
     });
     window.addEventListener("blur", closeItemContextMenu);
-    window.addEventListener("resize", closeItemContextMenu);
+    // Phones resize the viewport when the URL bar shows/hides during a scroll; only a width change
+    // (rotation, window resize) should close the menu.
+    let lastViewportWidth = window.innerWidth;
+    window.addEventListener("resize", () => {
+        if (window.innerWidth !== lastViewportWidth) closeItemContextMenu();
+        lastViewportWidth = window.innerWidth;
+    });
 
     window.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && itemContextMenu) {
@@ -1143,7 +1162,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const liveTooltip = overlay.querySelector(".rot-live-tooltip");
 
+        // Pointer events (not mouse events) so a finger or stylus can move, resize and rotate items
+        // too. The default action is cancelled on the compatibility mousedown rather than here, so
+        // outside-click listeners on window (font/color pickers, item menu) still see the press.
         overlay.addEventListener("mousedown", (e) => {
+            if (e.button === 0 && !e.target.closest(".overlay-menu-btn")) e.preventDefault();
+        });
+
+        overlay.addEventListener("pointerdown", (e) => {
+            // The touch "more" button opens the item menu on click; it never starts a drag.
+            if (e.target.closest(".overlay-menu-btn")) return;
+            // A second finger is a pinch (handled by the stage), not a new drag.
+            if (isDragging || isResizing || isRotating) return;
             selectedSigId = sig.id;
             syncInspectorInputs(sig);
             // preventDefault() below stops the click from moving focus, so drop focus from any
@@ -1179,9 +1209,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     liveTooltip.textContent = `${initRot}°`;
                     liveTooltip.classList.remove("hidden");
                 }
-                e.preventDefault();
                 e.stopPropagation();
-                return;
             } else if (e.target.classList.contains("resize-handle")) {
                 isResizing = true;
                 resizeHandle = e.target.dataset.handle;
@@ -1189,11 +1217,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 isDragging = true;
             }
 
-            e.preventDefault();
+            activePointerId = e.pointerId;
+            window.addEventListener("pointermove", onMouseMove);
+            window.addEventListener("pointerup", onMouseUp);
+            window.addEventListener("pointercancel", onMouseUp);
         });
+
+        let activePointerId = null;
 
         const onMouseMove = (e) => {
             if (!isDragging && !isResizing && !isRotating) return;
+            if (e.pointerId !== activePointerId) return;
+            if (stagePinchActive()) return;
             const scale = getScaleFactor();
             const currPointerDoc = screenToDocument(e.clientX, e.clientY);
 
@@ -1315,7 +1350,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
 
-        const onMouseUp = () => {
+        const onMouseUp = (e) => {
+            if (e.pointerId !== activePointerId) return;
             if (isRotating || isDragging || isResizing) {
                 if (sig.type === "text" && isResizing) {
                     // Snap to a clean font size and re-fit the box to the text
@@ -1342,18 +1378,13 @@ document.addEventListener("DOMContentLoaded", () => {
             isResizing = false;
             isRotating = false;
             resizeHandle = null;
-            window.removeEventListener("mousemove", onMouseMove);
-            window.removeEventListener("mouseup", onMouseUp);
+            activePointerId = null;
+            // Listeners are attached only once a gesture starts on this overlay (see pointerdown),
+            // so an unrelated pointerup elsewhere can't detach them mid-drag.
+            window.removeEventListener("pointermove", onMouseMove);
+            window.removeEventListener("pointerup", onMouseUp);
+            window.removeEventListener("pointercancel", onMouseUp);
         };
-
-        // Listen for the rest of the gesture only once it has started on this overlay. (These
-        // used to be attached once at creation, so the first unrelated mouseup anywhere -- e.g.
-        // a click or pan on the page -- removed them and left the item undraggable.)
-        overlay.addEventListener("mousedown", () => {
-            if (!isDragging && !isResizing && !isRotating) return;
-            window.addEventListener("mousemove", onMouseMove);
-            window.addEventListener("mouseup", onMouseUp);
-        });
     }
 
     // --- Inspector Inputs & Handlers ---
@@ -2885,35 +2916,83 @@ document.addEventListener("DOMContentLoaded", () => {
         panOriginY = panY;
     }
 
+    // Touch points currently down on the stage (pointerId -> {x, y}); two of them make a pinch.
+    const stageTouches = new Map();
+    let pinch = null; // { startDist, startZoom, lastMidX, lastMidY }
+
+    function stagePinchActive() {
+        return !!pinch;
+    }
+
+    function touchMidAndDist() {
+        const [a, b] = [...stageTouches.values()];
+        return { midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2, dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+    }
+
     if (stageViewport) {
-        // Capture phase so the Hand tool / middle button pan even when pressed on a placed item,
-        // before that item's own drag handler sees the event.
-        stageViewport.addEventListener("mousedown", (e) => {
-            closeItemContextMenu();
+        // Pointer events (mouse, finger and stylus alike). Capture phase so the Hand tool / middle
+        // button pan, and a two-finger pinch, win even when pressed on a placed item, before that
+        // item's own drag handler sees the event.
+        // A pinch or drag may end without the browser sending a click; never let that leftover
+        // "ignore the next click" eat a later, unrelated tap.
+        window.addEventListener("pointerdown", () => { suppressNextClick = false; }, true);
+
+        stageViewport.addEventListener("pointerdown", (e) => {
+            if (!e.target.closest(".item-context-menu")) closeItemContextMenu();
+            if (e.pointerType === "touch") {
+                stageTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (stageTouches.size === 2) {
+                    // Second finger: switch from whatever the first one started to pinch-zoom.
+                    panPending = null;
+                    isPanning = false;
+                    const { midX, midY, dist } = touchMidAndDist();
+                    pinch = { startDist: dist, startZoom: zoomLevel, lastMidX: midX, lastMidY: midY };
+                    e.stopImmediatePropagation();
+                    return;
+                }
+            }
             if (isPanModeActive || e.button === 1) {
                 beginPan(e.clientX, e.clientY);
-                e.preventDefault();
                 e.stopPropagation();
             }
         }, true);
 
+        // Stop text selection / native image drag on a press, as before. Done on the compatibility
+        // mousedown rather than pointerdown so window-level outside-click handlers still run.
         stageViewport.addEventListener("mousedown", (e) => {
-            if (isPanning || e.target.closest(".signature-overlay")) return;
+            if (e.button === 1 || (e.button === 0 && !e.target.closest(".signature-overlay"))) e.preventDefault();
+        });
+
+        stageViewport.addEventListener("pointerdown", (e) => {
+            if (pinch || isPanning || e.target.closest(".signature-overlay")) return;
             if (e.button !== 0 && e.button !== 2) return;
-            // Don't start a pan until the pointer actually moves, so a plain click still
+            // Don't start a pan until the pointer actually moves, so a plain click/tap still
             // stamps (stamp mode) or deselects (everywhere else).
-            panPending = { button: e.button, startX: e.clientX, startY: e.clientY };
-            if (e.button === 0) e.preventDefault();
+            panPending = { button: e.button, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+                           threshold: e.pointerType === "mouse" ? PAN_THRESHOLD_PX : 10 };
         });
 
         // Right-click on the page/background never shows the browser menu; placed items show
         // their own (see openItemContextMenu).
         stageViewport.addEventListener("contextmenu", (e) => e.preventDefault());
 
-        window.addEventListener("mousemove", (e) => {
+        window.addEventListener("pointermove", (e) => {
+            if (stageTouches.has(e.pointerId)) stageTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pinch) {
+                if (stageTouches.size < 2) return;
+                const { midX, midY, dist } = touchMidAndDist();
+                // Pan with the fingers' midpoint, then zoom around it.
+                panX += midX - pinch.lastMidX;
+                panY += midY - pinch.lastMidY;
+                pinch.lastMidX = midX;
+                pinch.lastMidY = midY;
+                setStageZoom(pinch.startZoom * dist / pinch.startDist, midX, midY);
+                return;
+            }
             if (panPending && !isPanning) {
+                if (e.pointerId !== panPending.pointerId) return;
                 const moved = Math.hypot(e.clientX - panPending.startX, e.clientY - panPending.startY);
-                if (moved < PAN_THRESHOLD_PX) return;
+                if (moved < panPending.threshold) return;
                 beginPan(panPending.startX, panPending.startY);
             }
             if (!isPanning) return;
@@ -2922,7 +3001,28 @@ document.addEventListener("DOMContentLoaded", () => {
             applyStageTransform();
         });
 
-        window.addEventListener("mouseup", (e) => {
+        const endStageTouch = (e) => {
+            if (!stageTouches.delete(e.pointerId)) return;
+            if (pinch && stageTouches.size < 2) {
+                pinch = null;
+                // Lifting the fingers must not count as a tap (stamp / mark / deselect).
+                suppressNextClick = true;
+                panPending = null;
+            }
+        };
+        window.addEventListener("pointercancel", (e) => {
+            endStageTouch(e);
+            if (isPanning) {
+                isPanning = false;
+                stageViewport.classList.remove("is-panning");
+            }
+            panPending = null;
+        });
+
+        window.addEventListener("pointerup", (e) => {
+            const wasPinch = !!pinch;
+            endStageTouch(e);
+            if (wasPinch) return;
             if (isPanning) {
                 isPanning = false;
                 stageViewport.classList.remove("is-panning");
@@ -3197,6 +3297,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         stageViewport.addEventListener("pointermove", (e) => {
             if (!stroke || e.pointerId !== stroke.pointerId) return;
+            if (stagePinchActive()) {
+                // A second finger went down: this is a pinch-zoom, not handwriting.
+                stroke.svg.remove();
+                stroke = null;
+                return;
+            }
             const samples = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
             let added = false;
             (samples.length ? samples : [e]).forEach(ev => {

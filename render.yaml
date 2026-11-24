@@ -1,0 +1,16 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In Render: New + > Blueprint > pick this repo. It builds the Dockerfile (includes LibreOffice).
+services:
+  - type: web
+    name: pdf-studio
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PDF_STUDIO_HOSTED
+        value: "1"
+      # Uploaded and saved files are deleted after this many seconds.
+      - key: PDF_STUDIO_FILE_TTL
+        value: "10800"
