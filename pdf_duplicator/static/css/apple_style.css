@@ -3748,6 +3748,8 @@ body.dark-mode .pdf-canvas-container { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3),
     }
     .bottom-toolbar::-webkit-scrollbar { display: none; }
     .bottom-toolbar .toolbar-pill { display: none; }
+    /* Preview is already in the pinned Save bar; frees room for Paste. */
+    .bottom-toolbar #toolPreviewBtn { display: none; }
     .bottom-toolbar .toolbar-group { padding: 6px; gap: 2px; flex-shrink: 0; }
     .bottom-toolbar .toolbar-group-muted { margin: 6px 6px 6px 2px; padding: 2px; }
     .bottom-toolbar .tool-btn { width: 36px; height: 36px; }

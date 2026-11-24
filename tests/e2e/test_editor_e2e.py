@@ -225,6 +225,71 @@ class EditorE2E(unittest.TestCase):
         out = self.save("e2e-marks")
         self.assertEqual(len(fitz.open(out)[0].get_drawings()), 2)
 
+    def test_copy_check_mark_and_paste_on_another_page(self):
+        self.open_pdf(self.sample)
+        self.assertTrue(self.page.locator("#toolPasteBtn").is_hidden())
+        self.page.click("#toolMarkBtn")
+        self.page.mouse.click(*self.page_point(78, 640))
+        self.page.keyboard.press("Escape")
+        self.page.keyboard.press("Meta+C")
+        self.assertTrue(self.page.locator("#toolPasteBtn").is_visible())
+        self.page.click("#nextPageBtn")
+        self.page.keyboard.press("Meta+V")
+        items = self.items()
+        self.assertEqual([(i["page"], i.get("shape")) for i in items], [(1, "check"), (2, "check")])
+        # Another page: lands exactly where the original is
+        self.assertEqual((items[1]["x"], items[1]["y"]), (round(items[0]["x"]), round(items[0]["y"])))
+        self.assertIsNot(items[0]["strokes"], items[1]["strokes"])
+        out = self.save("e2e-paste-mark")
+        doc = fitz.open(out)
+        self.assertEqual(len(doc[0].get_drawings()), 1)
+        self.assertEqual(len(doc[1].get_drawings()), 1)
+        self.assertEqual(len(doc[2].get_drawings()), 0)
+        doc.close()
+
+    def test_copy_paste_and_cut_text(self):
+        self.open_pdf(self.sample)
+        self.add_text("Copied")
+        self.page.mouse.click(*self.page_point(500, 760))  # deselect, leave the text field
+        self.page.locator(".signature-overlay").first.click()
+        self.page.keyboard.press("Meta+C")
+        self.page.keyboard.press("Meta+V")
+        self.page.keyboard.press("Meta+V")
+        items = self.items()
+        self.assertEqual([i["text"] for i in items], ["Copied"] * 3)
+        # Same page: each paste is nudged so copies don't hide each other
+        self.assertEqual(items[1]["x"] - items[0]["x"], 12)
+        self.assertEqual(items[2]["x"] - items[0]["x"], 24)
+        self.assertEqual(len({i["id"] for i in items}), 3)
+        # The paste is selected; cut removes it and it can be pasted back
+        self.page.keyboard.press("Meta+X")
+        self.assertEqual(len(self.items()), 2)
+        self.page.keyboard.press("Meta+V")
+        self.assertEqual(len(self.items()), 3)
+        # Undo removes a paste like any other placement
+        self.page.keyboard.press("Meta+Z")
+        self.assertEqual(len(self.items()), 2)
+        out = self.save("e2e-paste-text")
+        self.assertEqual(fitz.open(out)[0].get_text().count("Copied"), 2)
+
+    def test_copy_from_menu_and_paste_here(self):
+        self.open_pdf(self.sample)
+        self.add_text("Menu")
+        self.page.mouse.click(*self.page_point(500, 760))
+        # Right-click on empty page offers nothing until something is copied
+        self.page.mouse.click(*self.page_point(300, 500), button="right")
+        self.assertEqual(self.page.locator(".item-context-menu").count(), 0)
+        self.page.locator(".signature-overlay").first.click(button="right")
+        self.page.click(".item-context-menu .ctx-item >> text=Copy")
+        self.page.mouse.click(*self.page_point(300, 500), button="right")
+        self.page.click(".item-context-menu .ctx-item >> text=Paste here")
+        pasted = self.items()[-1]
+        self.assertAlmostEqual(pasted["x"] + pasted["width"] / 2, 300, delta=2)
+        self.assertAlmostEqual(pasted["y"] + pasted["height"] / 2, 500, delta=2)
+        # Toolbar Paste button does the same as Cmd+V
+        self.page.click("#toolPasteBtn")
+        self.assertEqual(len(self.items()), 3)
+
     def test_draw_signature_and_place_it(self):
         self.open_pdf(self.sample)
         self.page.click("#toolNewSigBtn")

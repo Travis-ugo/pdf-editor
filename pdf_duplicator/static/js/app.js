@@ -1047,6 +1047,72 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- Copy / Cut / Paste for placed items (signatures, text, pen drawings, check marks) ---
+    // An in-app clipboard: a snapshot of the copied item, so it can be pasted any number of times,
+    // on any page (or into another document), even after the original is changed or deleted.
+    let itemClipboard = null; // { item, pasteCount }
+    const toolPasteBtn = document.getElementById("toolPasteBtn");
+
+    function syncPasteButton() {
+        if (toolPasteBtn) toolPasteBtn.classList.toggle("hidden", !itemClipboard);
+    }
+
+    function copyItem(id, { silent = false } = {}) {
+        const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === id);
+        if (!sig) return false;
+        itemClipboard = { item: JSON.parse(JSON.stringify(sig)), pasteCount: 0 };
+        syncPasteButton();
+        if (!silent) showStatus(`Copied. Paste with ${isTouchUi() ? "the Paste button" : modKey + "V"}, on any page.`, "success");
+        return true;
+    }
+
+    function cutItem(id) {
+        if (!copyItem(id, { silent: true })) return;
+        deleteItem(id);
+        showStatus(`Cut. Paste with ${isTouchUi() ? "the Paste button" : modKey + "V"}, on any page.`, "success");
+    }
+
+    function isTouchUi() {
+        return window.matchMedia("(hover: none), (pointer: coarse)").matches;
+    }
+
+    // Pastes the clipboard item onto the current page. With a point (right-click / long-press
+    // "Paste here"), it's centered there; otherwise it goes where the original was -- nudged
+    // down-right for each paste onto the original's own page, so copies don't stack invisibly.
+    function pasteItem(at = null) {
+        if (!itemClipboard || store.state.currentMode !== "sign") return null;
+        const doc = store.state.document;
+        if (!doc.totalPages) {
+            showStatus("Open a document first, then paste.", "error");
+            return null;
+        }
+        const src = itemClipboard.item;
+        const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+        let x, y;
+        if (at) {
+            const pos = screenToDocument(at.clientX, at.clientY);
+            x = pos.x - src.width / 2;
+            y = pos.y - src.height / 2;
+        } else {
+            const nudge = src.page === doc.currentPage ? 12 * (itemClipboard.pasteCount + 1) : 0;
+            x = src.x + nudge;
+            y = src.y + nudge;
+        }
+        // Keep it on the page (a different page or document may be smaller).
+        x = Math.round(Math.max(0, Math.min(x, pageDim.width - src.width)));
+        y = Math.round(Math.max(0, Math.min(y, pageDim.height - src.height)));
+        itemClipboard.pasteCount++;
+
+        setInkTool(null);
+        const copy = store.pasteItemOnDoc(src, { page: doc.currentPage, x, y });
+        if (copy) {
+            selectedSigId = copy.id;
+            syncInspectorInputs(copy);
+            renderStageSignatures();
+        }
+        return copy;
+    }
+
     function closeItemContextMenu() {
         if (itemContextMenu) {
             itemContextMenu.remove();
@@ -1055,17 +1121,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function openItemContextMenu(id, clientX, clientY) {
-        closeItemContextMenu();
         const actions = [
+            { label: "Copy", shortcut: `${modKey}C`, run: () => copyItem(id) },
+            { label: "Cut", shortcut: `${modKey}X`, run: () => cutItem(id) },
+            ...(itemClipboard ? [{ label: "Paste", shortcut: `${modKey}V`, run: () => pasteItem() }] : []),
             { label: "Duplicate", shortcut: `${modKey}D`, run: () => duplicateItem(id) },
-            { label: "Rotate 90°", shortcut: "", run: () => rotateItem90(id) },
             { divider: true },
+            { label: "Rotate 90°", shortcut: "", run: () => rotateItem90(id) },
             { label: "Bring to Front", shortcut: `${modKey}]`, run: () => store.reorderSignatureOnDoc(id, "front") },
             { label: "Send to Back", shortcut: `${modKey}[`, run: () => store.reorderSignatureOnDoc(id, "back") },
             { divider: true },
             { label: "Delete", shortcut: isMac ? "⌫" : "Del", danger: true, run: () => deleteItem(id) }
         ];
+        openContextMenu(actions, clientX, clientY);
+    }
 
+    // Right-click / long-press on an empty spot of the page.
+    function openPageContextMenu(clientX, clientY) {
+        if (!itemClipboard) return;
+        openContextMenu([
+            { label: "Paste here", shortcut: "", run: () => pasteItem({ clientX, clientY }) },
+            { label: "Paste in place", shortcut: `${modKey}V`, run: () => pasteItem() }
+        ], clientX, clientY);
+    }
+
+    function openContextMenu(actions, clientX, clientY) {
+        closeItemContextMenu();
         const menu = document.createElement("div");
         menu.className = "item-context-menu";
         menu.setAttribute("role", "menu");
@@ -1120,10 +1201,32 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const el = document.activeElement;
         if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return;
-        if (!selectedSigId || store.state.currentMode !== "sign") return;
-        if (!store.state.signature.activeSignaturesOnDoc.some(s => s.id === selectedSigId)) return;
+        if (store.state.currentMode !== "sign") return;
+        if (document.querySelector(".apple-modal-backdrop:not(.hidden)")) return;
 
         const mod = e.metaKey || e.ctrlKey;
+        const key = e.key.toLowerCase();
+        // Paste works with nothing selected. Leave the browser's own copy alone when the user has
+        // highlighted text on the page.
+        if (mod && !e.shiftKey && !e.altKey && key === "v" && itemClipboard) {
+            e.preventDefault();
+            closeItemContextMenu();
+            pasteItem();
+            return;
+        }
+
+        if (!selectedSigId) return;
+        if (!store.state.signature.activeSignaturesOnDoc.some(s => s.id === selectedSigId)) return;
+
+        const hasTextSelection = !!(window.getSelection && String(window.getSelection()).trim());
+        if (mod && !e.shiftKey && !e.altKey && (key === "c" || key === "x") && !hasTextSelection) {
+            e.preventDefault();
+            closeItemContextMenu();
+            if (key === "c") copyItem(selectedSigId);
+            else cutItem(selectedSigId);
+            return;
+        }
+
         if (e.key === "Delete" || e.key === "Backspace") {
             e.preventDefault();
             closeItemContextMenu();
@@ -2857,6 +2960,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (toolStampBtn) toolStampBtn.addEventListener("click", () => isStampModeActive ? selectMoveTool() : selectStampTool());
     if (toolNewSigBtn) toolNewSigBtn.addEventListener("click", () => openSigStudioBtn && openSigStudioBtn.click());
     if (toolPreviewBtn) toolPreviewBtn.addEventListener("click", () => openFullPreviewBtn && openFullPreviewBtn.click());
+    if (toolPasteBtn) toolPasteBtn.addEventListener("click", () => pasteItem());
 
     // Figma-style single-key tool shortcuts.
     window.addEventListener("keydown", (e) => {
@@ -2974,7 +3078,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Right-click on the page/background never shows the browser menu; placed items show
         // their own (see openItemContextMenu).
-        stageViewport.addEventListener("contextmenu", (e) => e.preventDefault());
+        stageViewport.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            // On the page itself (not an item, which has its own menu): offer Paste here.
+            if (store.state.currentMode === "sign" && !e.target.closest(".signature-overlay")
+                && e.target.closest("#pdfCanvasContainer")) {
+                openPageContextMenu(e.clientX, e.clientY);
+            }
+        });
 
         window.addEventListener("pointermove", (e) => {
             if (stageTouches.has(e.pointerId)) stageTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });

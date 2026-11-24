@@ -375,6 +375,28 @@ class PDFStudioStore {
         return copy;
     }
 
+    // Pastes a copied item (any type: signature image, text, pen drawing, check mark) as a new item
+    // with `props` (usually page, x, y) applied, on top of everything else. `item` is a snapshot
+    // taken at copy time, so later edits to (or deletion of) the original don't change the paste.
+    pasteItemOnDoc(item, props = {}) {
+        if (!item) return null;
+        const items = this.state.signature.activeSignaturesOnDoc;
+        this.recordStateSnapshot();
+        const maxZ = items.length > 0 ? Math.max(...items.map(s => s.zIndex || 1)) + 1 : 1;
+        const prefix = item.type === "text" ? "text_doc_" : (item.type === "ink" ? "ink_doc_" : "sig_doc_");
+        const copy = {
+            ...JSON.parse(JSON.stringify(item)), // deep: ink strokes are nested arrays
+            id: prefix + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            page: this.state.document.currentPage || 1,
+            zIndex: maxZ,
+            confirmed: false,
+            ...props
+        };
+        items.push(copy);
+        this.emit("signatures:doc_updated", items);
+        return copy;
+    }
+
     // "front" / "back": renumbers every item's zIndex 1..n so the target ends up top or bottom.
     reorderSignatureOnDoc(id, where) {
         const items = this.state.signature.activeSignaturesOnDoc;
