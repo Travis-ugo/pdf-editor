@@ -176,7 +176,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const inkBannerPickBtn = document.getElementById("inkBannerPickBtn");
     const colorLoupe = document.getElementById("colorPickLoupe");
     const eraserSettings = { color: "#ffffff", width: 12, auto: false };
-    let eraserPicking = false; // the next press on the page picks the eraser color
+    let colorPicking = false; // the next press on the page picks the eraser / redaction fill color
+
+    // Redaction (see "Redact" below): boxes whose content is permanently removed on save.
+    const toolRedactBtn = document.getElementById("toolRedactBtn");
+    const redactSettings = { color: "#000000" };
+    const redactControls = {
+        hint: document.getElementById("redactHint"),
+        editor: document.getElementById("redactEditor"),
+        swatch: document.getElementById("redactColorSwatch"),
+        hex: document.getElementById("redactColorHex"),
+        pickBtn: document.getElementById("redactPickBtn"),
+        presets: document.querySelector(".redact-presets"),
+        count: document.getElementById("redactCount")
+    };
     const eraserControls = {
         hint: document.getElementById("eraserHint"),
         editor: document.getElementById("eraserEditor"),
@@ -979,7 +992,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const overlay = document.createElement("div");
             const isText = sig.type === "text";
             const isInk = sig.type === "ink";
-            overlay.className = `signature-overlay ${isText ? 'text-overlay' : ''} ${isInk ? 'ink-overlay' : ''} ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
+            const isRedact = sig.type === "redact";
+            overlay.className = `signature-overlay ${isText ? 'text-overlay' : ''} ${isInk ? 'ink-overlay' : ''} ${isRedact ? 'redact-overlay' : ''} ${sig.confirmed ? 'confirmed' : ''} ${selectedSigId === sig.id ? 'active-selected' : ''}`;
             overlay.dataset.sigId = sig.id;
             overlay.style.left = `${sig.x * scale}px`;
             overlay.style.top = `${sig.y * scale}px`;
@@ -993,7 +1007,7 @@ document.addEventListener("DOMContentLoaded", () => {
             overlay.innerHTML = `
                 <div class="rot-live-tooltip hidden">0°</div>
                 <div class="overlay-inner">
-                    ${isText ? buildTextSvg(sig) : (isInk ? buildInkSvg(sig) : `<img src="${sig.dataUrl}" alt="Signature">`)}
+                    ${isText ? buildTextSvg(sig) : (isInk ? buildInkSvg(sig) : (isRedact ? buildRedactFill(sig) : `<img src="${sig.dataUrl}" alt="Signature">`))}
                 </div>
                 <!-- Word-style corner rotation: hovering just outside a corner handle (not on it)
                      swaps to a rotate cursor/icon; the handle itself still scales. No handle is
@@ -1399,7 +1413,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 const localPointer = documentToLocal(currPointerDoc.x, currPointerDoc.y, initCenter, rotRad);
                 const ratio = sig.aspectRatio || ((initW > 0 && initH > 0) ? (initW / initH) : 2.5);
                 // Small text boxes and check marks are legitimately smaller than a signature would ever be
-                const small = sig.type === "text" || sig.type === "ink";
+                const small = sig.type === "text" || sig.type === "ink" || sig.type === "redact";
+                // Redaction boxes are plain rectangles: corners resize width and height independently.
+                const free = sig.type === "redact";
                 const minW = small ? 6 : 20;
                 const minH = small ? 4 : 10;
 
@@ -1414,30 +1430,35 @@ document.addEventListener("DOMContentLoaded", () => {
                     newR = localPointer.x;
                     newB = localPointer.y;
                     let newW = Math.max(minW, newR - L);
-                    let newH = Math.max(minH, Math.round(newW / ratio));
+                    let newH = free ? Math.max(minH, newB - T) : Math.max(minH, Math.round(newW / ratio));
                     newR = L + newW;
                     newB = T + newH;
                 } else if (resizeHandle === "nw") {
                     newL = localPointer.x;
                     newT = localPointer.y;
                     let newW = Math.max(minW, R - newL);
-                    let newH = Math.max(minH, Math.round(newW / ratio));
+                    let newH = free ? Math.max(minH, B - newT) : Math.max(minH, Math.round(newW / ratio));
                     newL = R - newW;
                     newT = B - newH;
                 } else if (resizeHandle === "ne") {
                     newR = localPointer.x;
                     newT = localPointer.y;
                     let newW = Math.max(minW, newR - L);
-                    let newH = Math.max(minH, Math.round(newW / ratio));
+                    let newH = free ? Math.max(minH, B - newT) : Math.max(minH, Math.round(newW / ratio));
                     newR = L + newW;
                     newT = B - newH;
                 } else if (resizeHandle === "sw") {
                     newL = localPointer.x;
                     newB = localPointer.y;
                     let newW = Math.max(minW, R - newL);
-                    let newH = Math.max(minH, Math.round(newW / ratio));
+                    let newH = free ? Math.max(minH, newB - T) : Math.max(minH, Math.round(newW / ratio));
                     newL = R - newW;
-                    newT = B - newH;
+                    if (free) {
+                        newT = T;           // free box: the top stays put, the bottom follows the pointer
+                        newB = T + newH;
+                    } else {
+                        newT = B - newH;
+                    }
                 } else if (resizeHandle === "n") {
                     newT = Math.min(B - 10, localPointer.y);
                 } else if (resizeHandle === "s") {
@@ -1618,6 +1639,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 scaleTextItem(sig, (parseFloat(sigWInput.value) || sig.width) / sig.width);
                 return;
             }
+            if (sig && sig.type === "redact") {
+                store.updateSignatureOnDoc(selectedSigId, { width: Math.max(2, parseFloat(sigWInput.value) || sig.width) }, true);
+                return;
+            }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
             const isInk = sig && sig.type === "ink";
             const newW = Math.max(isInk ? 4 : 20, parseFloat(sigWInput.value) || 150);
@@ -1635,6 +1660,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
             if (sig && sig.type === "text") {
                 scaleTextItem(sig, (parseFloat(sigHInput.value) || sig.height) / sig.height);
+                return;
+            }
+            if (sig && sig.type === "redact") {
+                store.updateSignatureOnDoc(selectedSigId, { height: Math.max(2, parseFloat(sigHInput.value) || sig.height) }, true);
                 return;
             }
             const ratio = (sig && sig.aspectRatio) || (sig && sig.width && sig.height ? sig.width / sig.height : 2.5);
@@ -2141,6 +2170,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     italic: !!s.italic,
                     color: s.color || "#000000"
                 };
+            }
+            if (s.type === "redact") {
+                return { ...common, type: "redact", rotation: 0, color: s.color || "#000000" };
             }
             if (s.type === "ink") {
                 return {
@@ -2968,6 +3000,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (toolPenBtn) toolPenBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "pen");
         if (toolMarkBtn) toolMarkBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "mark");
         if (toolEraserBtn) toolEraserBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "eraser");
+        if (toolRedactBtn) toolRedactBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "redact");
     }
 
     function selectMoveTool() {
@@ -3008,7 +3041,8 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (key === "s" && store.state.currentMode === "sign") selectStampTool();
         else if (key === "p" && store.state.currentMode === "sign") setInkTool(activeInkTool === "pen" ? null : "pen");
         else if (key === "e" && store.state.currentMode === "sign") toggleEraserTool();
-        else if (key === "i" && store.state.currentMode === "sign") setEraserPicking(!eraserPicking);
+        else if (key === "r" && store.state.currentMode === "sign") setInkTool(activeInkTool === "redact" ? null : "redact");
+        else if (key === "i" && store.state.currentMode === "sign") setColorPicking(!colorPicking);
         else if ((key === "k" || key === "x") && store.state.currentMode === "sign") {
             setMarkShape(key === "k" ? "check" : "cross");
             setInkTool("mark");
@@ -3285,13 +3319,14 @@ document.addEventListener("DOMContentLoaded", () => {
         activeInkTool = tool;
         lastInkId = null;
         penSessionIds.clear();
-        if (tool !== "eraser" && eraserPicking) setEraserPicking(false, { quiet: true });
+        if (!pickingTool(tool) && colorPicking) setColorPicking(false, { quiet: true });
         if (tool && isStampModeActive) setStampMode(false);
         if (tool && isPanModeActive) setPanMode(false);
         if (stageViewport) {
-            // The eraser draws like the pen (same cursor, touch handling and hidden handles).
-            stageViewport.classList.toggle("pen-active", tool === "pen" || tool === "eraser");
+            // The eraser and redaction tool draw like the pen (cursor, touch handling, hidden handles).
+            stageViewport.classList.toggle("pen-active", tool === "pen" || tool === "eraser" || tool === "redact");
             stageViewport.classList.toggle("eraser-active", tool === "eraser");
+            stageViewport.classList.toggle("redact-active", tool === "redact");
             stageViewport.classList.toggle("mark-active", tool === "mark");
         }
         syncInkBanner();
@@ -3310,22 +3345,25 @@ document.addEventListener("DOMContentLoaded", () => {
             html = `Draw or write on the page${touch ? "" : " · <kbd>Esc</kbd> when done"}`;
         } else if (tool === "mark") {
             html = `${tap} a box to place a ${markSettings.shape === "check" ? "check mark" : "cross"}${touch ? "" : " · <kbd>Esc</kbd> when done"}`;
-        } else if (tool === "eraser" && eraserPicking) {
-            html = touch ? "Slide to a color, then lift" : "Click the page to pick the eraser color · <kbd>Esc</kbd> to cancel";
+        } else if (pickingTool(tool) && colorPicking) {
+            html = touch ? "Slide to a color, then lift"
+                : `Click the page to pick the ${tool === "redact" ? "fill" : "eraser"} color · <kbd>Esc</kbd> to cancel`;
+        } else if (tool === "redact") {
+            html = `Drag over what to remove for good${touch ? "" : " · <kbd>Alt</kbd>-click to pick the fill"}`;
         } else if (tool === "eraser") {
             html = eraserSettings.auto
                 ? "Paint over anything · each stroke matches the page where it starts"
                 : `Paint over anything to cover it${touch ? "" : " · <kbd>Alt</kbd>-click to pick the color"}`;
         }
         if (html !== undefined) inkBannerText.innerHTML = html;
-        const showSwatch = tool === "eraser" && !eraserSettings.auto;
+        const showSwatch = (tool === "eraser" && !eraserSettings.auto) || tool === "redact";
         if (inkBannerSwatch) {
             inkBannerSwatch.classList.toggle("hidden", !showSwatch);
-            inkBannerSwatch.style.background = eraserSettings.color;
+            inkBannerSwatch.style.background = tool === "redact" ? redactSettings.color : eraserSettings.color;
         }
         if (inkBannerPickBtn) {
-            inkBannerPickBtn.classList.toggle("hidden", tool !== "eraser");
-            inkBannerPickBtn.textContent = eraserPicking ? "Cancel" : "Pick color";
+            inkBannerPickBtn.classList.toggle("hidden", !pickingTool(tool));
+            inkBannerPickBtn.textContent = colorPicking ? "Cancel" : "Pick color";
         }
     }
 
@@ -3337,6 +3375,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Shows the pen/mark controls for the selected ink item, or for the active tool's next item.
     function syncInkPanel() {
+        syncRedactPanel();
         if (!inkEditor) return;
         let sel = getSelectedInkItem();
         // Eraser strokes have their own panel (color from the page, size).
@@ -3439,10 +3478,20 @@ document.addEventListener("DOMContentLoaded", () => {
             return [Math.max(0, Math.min(pageDim.width, p.x)), Math.max(0, Math.min(pageDim.height, p.y))];
         };
 
-        const wantsPen = (e) => (activeInkTool === "pen" || activeInkTool === "eraser") && !isPanModeActive && !isPanning
+        const wantsPen = (e) => (activeInkTool === "pen" || activeInkTool === "eraser" || activeInkTool === "redact") && !isPanModeActive && !isPanning
             && e.button === 0 && !!e.target.closest("#pdfCanvasContainer");
 
         let pick = null; // { pointerId } while picking the eraser color with a pressed pointer
+        let rdrag = null; // { pointerId, start, end, el } while dragging out a redaction box
+
+        const redactRect = () => {
+            const [x0, y0] = rdrag.start, [x1, y1] = rdrag.end;
+            return { x: Math.min(x0, x1), y: Math.min(y0, y1), width: Math.abs(x1 - x0), height: Math.abs(y1 - y0) };
+        };
+        const layoutRedactLive = () => {
+            const r = redactRect(), k = getScaleFactor();
+            Object.assign(rdrag.el.style, { left: `${r.x * k}px`, top: `${r.y * k}px`, width: `${r.width * k}px`, height: `${r.height * k}px` });
+        };
 
         stageViewport.addEventListener("pointerdown", (e) => {
             if (!wantsPen(e)) return;
@@ -3454,9 +3503,20 @@ document.addEventListener("DOMContentLoaded", () => {
             // Eraser color picking: Pick mode, or Alt/Option-click while erasing. The color is
             // taken where the pointer is released, so a finger can slide to the exact spot while
             // the magnifier (shown above the finger) previews it.
-            if (activeInkTool === "eraser" && (eraserPicking || e.altKey)) {
+            if (pickingTool(activeInkTool) && (colorPicking || e.altKey)) {
                 pick = { pointerId: e.pointerId };
                 showColorLoupe(e.clientX, e.clientY, e.pointerType);
+                return;
+            }
+
+            if (activeInkTool === "redact") {
+                const start = pagePoint(e);
+                const el = document.createElement("div");
+                el.className = "redact-live";
+                el.style.setProperty("--redact-fill", redactSettings.color);
+                pdfCanvasContainer.appendChild(el);
+                rdrag = { pointerId: e.pointerId, start, end: start, el };
+                layoutRedactLive();
                 return;
             }
 
@@ -3494,12 +3554,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         stageViewport.addEventListener("pointermove", (e) => {
             // Picking: the magnifier follows the pointer (hover with a mouse, or a pressed finger).
-            if (activeInkTool === "eraser" && (pick ? e.pointerId === pick.pointerId : (eraserPicking || e.altKey) && e.pointerType === "mouse")) {
+            if (pickingTool(activeInkTool) && (pick ? e.pointerId === pick.pointerId : (colorPicking || e.altKey) && e.pointerType === "mouse")) {
                 if (e.target.closest("#pdfCanvasContainer") || pick) showColorLoupe(e.clientX, e.clientY, e.pointerType);
                 else hideColorLoupe();
                 return;
             }
             if (colorLoupe && !colorLoupe.classList.contains("hidden") && !pick) hideColorLoupe();
+            if (rdrag && e.pointerId === rdrag.pointerId) {
+                if (stagePinchActive()) { rdrag.el.remove(); rdrag = null; return; }
+                rdrag.end = pagePoint(e);
+                layoutRedactLive();
+                return;
+            }
             if (!stroke || e.pointerId !== stroke.pointerId) return;
             if (stagePinchActive()) {
                 // A second finger went down: this is a pinch-zoom, not handwriting.
@@ -3526,8 +3592,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 hideColorLoupe();
                 if (e.type === "pointercancel") return;
                 const hex = pageColorAt(e.clientX, e.clientY);
-                if (hex) setEraserColor(hex, { fromPage: true });
-                setEraserPicking(false);
+                if (hex && activeInkTool === "redact") setRedactColor(hex);
+                else if (hex) setEraserColor(hex, { fromPage: true });
+                setColorPicking(false);
+                return;
+            }
+            if (rdrag && e.pointerId === rdrag.pointerId) {
+                const r = redactRect();
+                rdrag.el.remove();
+                const at = rdrag.start;
+                rdrag = null;
+                if (e.type === "pointercancel") return;
+                placeRedaction(r, at);
                 return;
             }
             if (!stroke || e.pointerId !== stroke.pointerId) return;
@@ -3634,15 +3710,24 @@ document.addEventListener("DOMContentLoaded", () => {
         if (colorLoupe) colorLoupe.classList.add("hidden");
     }
 
-    function setEraserPicking(on, { quiet = false } = {}) {
-        if (on && activeInkTool !== "eraser") {
-            setInkTool("eraser");
-            if (activeInkTool !== "eraser") return; // no document open
+    // Tools whose color can be picked from the page.
+    function pickingTool(tool) {
+        return tool === "eraser" || tool === "redact";
+    }
+
+    // Starts/stops picking a color from the page for `tool` (the current eraser/redact tool, or
+    // the eraser): the next press on the page samples the color under it.
+    function setColorPicking(on, { quiet = false, tool = null } = {}) {
+        const want = tool || (pickingTool(activeInkTool) ? activeInkTool : "eraser");
+        if (on && activeInkTool !== want) {
+            setInkTool(want);
+            if (activeInkTool !== want) return; // no document open
         }
-        eraserPicking = !!on;
-        if (stageViewport) stageViewport.classList.toggle("color-picking", eraserPicking);
-        if (!eraserPicking) hideColorLoupe();
-        if (eraserControls.pickBtn) eraserControls.pickBtn.classList.toggle("active", eraserPicking);
+        colorPicking = !!on;
+        if (stageViewport) stageViewport.classList.toggle("color-picking", colorPicking);
+        if (!colorPicking) hideColorLoupe();
+        if (eraserControls.pickBtn) eraserControls.pickBtn.classList.toggle("active", colorPicking && activeInkTool === "eraser");
+        if (redactControls.pickBtn) redactControls.pickBtn.classList.toggle("active", colorPicking && activeInkTool === "redact");
         if (!quiet) syncInkBanner();
     }
 
@@ -3680,7 +3765,7 @@ document.addEventListener("DOMContentLoaded", () => {
         eraserControls.auto.checked = eraserSettings.auto;
         if (document.activeElement !== eraserControls.width) eraserControls.width.value = width;
         eraserControls.widthValue.textContent = `${Math.round(width * 10) / 10} pt`;
-        eraserControls.pickBtn.classList.toggle("active", eraserPicking);
+        eraserControls.pickBtn.classList.toggle("active", colorPicking);
         const presets = ["#ffffff", ...eraserRecents];
         eraserControls.presets.innerHTML = presets.map(c =>
             `<button type="button" class="eraser-preset${c === color && !auto ? " active" : ""}" data-color="${c}" style="background:${c}" title="${c.toUpperCase()}"></button>`).join("");
@@ -3698,8 +3783,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (toolEraserBtn) toolEraserBtn.addEventListener("click", toggleEraserTool);
-    if (inkBannerPickBtn) inkBannerPickBtn.addEventListener("click", () => setEraserPicking(!eraserPicking));
-    if (eraserControls.pickBtn) eraserControls.pickBtn.addEventListener("click", () => setEraserPicking(!eraserPicking));
+    if (inkBannerPickBtn) inkBannerPickBtn.addEventListener("click", () => setColorPicking(!colorPicking));
+    if (eraserControls.pickBtn) eraserControls.pickBtn.addEventListener("click", () =>
+        setColorPicking(!(colorPicking && activeInkTool === "eraser"), { tool: "eraser" }));
     if (eraserControls.swatch) eraserControls.swatch.addEventListener("click", () => {
         if (colorPopoverTarget === eraserColorTarget) closeColorPicker();
         else openColorPicker(eraserColorTarget);
@@ -3712,7 +3798,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     if (eraserControls.auto) eraserControls.auto.addEventListener("change", () => {
         eraserSettings.auto = eraserControls.auto.checked;
-        if (eraserSettings.auto) setEraserPicking(false, { quiet: true });
+        if (eraserSettings.auto) setColorPicking(false, { quiet: true });
         syncInkPanel();
         syncInkBanner();
     });
@@ -3733,13 +3819,104 @@ document.addEventListener("DOMContentLoaded", () => {
         eraserControls.width.addEventListener("change", () => { snapshotTaken = false; eraserControls.width.blur(); });
     }
     window.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && eraserPicking) {
+        if (e.key === "Escape" && colorPicking) {
             e.stopImmediatePropagation(); // cancel picking only; stay in the eraser
-            setEraserPicking(false);
+            setColorPicking(false);
         }
     }, true);
     // Alt/Option held while erasing: show the magnifier straight away.
-    window.addEventListener("keyup", (e) => { if (e.key === "Alt" && !eraserPicking) hideColorLoupe(); });
+    window.addEventListener("keyup", (e) => { if (e.key === "Alt" && !colorPicking) hideColorLoupe(); });
+
+    // --- Redact ---
+    // Boxes dragged over content that must be removed for good. On the stage they're the fill
+    // color with a hatch (so they read as "will be removed", not as a drawn rectangle); on save
+    // core.apply_redactions deletes the text, image pixels and drawings under them.
+    function buildRedactFill(sig) {
+        return `<div class="redact-fill" style="--redact-fill:${escapeHtml(sig.color || "#000000")}" title="Removed for good when you save"></div>`;
+    }
+
+    function getSelectedRedactItem() {
+        const sig = store.state.signature.activeSignaturesOnDoc.find(s => s.id === selectedSigId);
+        return sig && sig.type === "redact" ? sig : null;
+    }
+
+    // r: the dragged box in page points. A tap (no real drag) drops a default-size box centered there.
+    function placeRedaction(r, at) {
+        const doc = store.state.document;
+        const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
+        let { x, y, width, height } = r;
+        if (width < 4 && height < 4) {
+            width = 120;
+            height = 20;
+            x = at[0] - width / 2;
+            y = at[1] - height / 2;
+        }
+        width = Math.max(2, width);
+        height = Math.max(2, height);
+        x = Math.max(0, Math.min(x, pageDim.width - width));
+        y = Math.max(0, Math.min(y, pageDim.height - height));
+        const item = store.addRedactToDoc({
+            x: round2(x), y: round2(y), width: round2(width), height: round2(height),
+            color: redactSettings.color, page: doc.currentPage
+        });
+        selectedSigId = item.id;
+        syncInspectorInputs(item);
+        renderStageSignatures();
+    }
+
+    function setRedactColor(hex, { record = true } = {}) {
+        hex = hex.toLowerCase();
+        redactSettings.color = hex;
+        const sel = getSelectedRedactItem();
+        if (sel && sel.color !== hex) store.updateSignatureOnDoc(sel.id, { color: hex }, record);
+        if (colorPicking && activeInkTool === "redact") setColorPicking(false, { quiet: true });
+        syncRedactPanel();
+        syncInkBanner();
+    }
+
+    function syncRedactPanel() {
+        if (!redactControls.editor) return;
+        const sel = getSelectedRedactItem();
+        const show = !!sel || activeInkTool === "redact";
+        redactControls.editor.classList.toggle("hidden", !show);
+        if (redactControls.hint) redactControls.hint.classList.toggle("hidden", show);
+        const n = store.state.signature.activeSignaturesOnDoc.filter(s => s.type === "redact").length;
+        if (redactControls.count) {
+            redactControls.count.textContent = n ? `${n} area${n === 1 ? "" : "s"} will be removed when you save` : "";
+            redactControls.count.classList.toggle("hidden", !n);
+        }
+        if (!show) return;
+        const color = sel ? sel.color : redactSettings.color;
+        redactControls.swatch.style.background = color;
+        redactControls.hex.textContent = color.toUpperCase();
+        redactControls.pickBtn.classList.toggle("active", colorPicking && activeInkTool === "redact");
+        const presets = ["#000000", "#ffffff", ...eraserRecents.filter(c => c !== "#000000")].slice(0, 7);
+        redactControls.presets.innerHTML = presets.map(c =>
+            `<button type="button" class="eraser-preset${c === color ? " active" : ""}" data-color="${c}" style="background:${c}" title="${c.toUpperCase()}"></button>`).join("");
+    }
+
+    const redactColorTarget = {
+        label: "Redaction fill color",
+        get anchor() { return redactControls.swatch; },
+        value: () => (getSelectedRedactItem() || redactSettings).color,
+        apply: (hex, type) => setRedactColor(hex, { record: type === "change" })
+    };
+
+    if (toolRedactBtn) toolRedactBtn.addEventListener("click", () =>
+        setInkTool(activeInkTool === "redact" && !isPanModeActive ? null : "redact"));
+    if (redactControls.pickBtn) redactControls.pickBtn.addEventListener("click", () => {
+        // A selected box keeps its selection, so the picked color applies to it.
+        setColorPicking(!(colorPicking && activeInkTool === "redact"), { tool: "redact" });
+    });
+    if (redactControls.swatch) redactControls.swatch.addEventListener("click", () => {
+        if (colorPopoverTarget === redactColorTarget) closeColorPicker();
+        else openColorPicker(redactColorTarget);
+    });
+    if (redactControls.presets) redactControls.presets.addEventListener("click", (e) => {
+        const btn = e.target.closest(".eraser-preset");
+        if (btn) setRedactColor(btn.dataset.color);
+    });
+    store.subscribe("signatures:doc_updated", syncRedactPanel);
 
     // --- Stage Canvas Zoom & Global Page Zoom Interception ---
     const zoomOutBtn = document.getElementById("zoomOutBtn");
@@ -3922,7 +4099,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // The previous file's link stays valid until the next save replaces it.
         if (saveResult.url && saveResult.url !== url) URL.revokeObjectURL(saveResult.url);
         saveResult.url = url;
-        saveResult.title.textContent = SAVE_RESULT_TITLES[mode] || "PDF saved";
+        const redacted = mode === "sign" && store.state.signature.activeSignaturesOnDoc.some(x => x.type === "redact");
+        saveResult.title.textContent = redacted ? "Redacted PDF saved" : (SAVE_RESULT_TITLES[mode] || "PDF saved");
         saveResult.name.textContent = fileName;
         saveResult.name.title = fileName;
         saveResult.size.textContent = formatBytes(blob.size);

@@ -4,6 +4,11 @@
  * and Undo/Redo placement history.
  */
 
+// Id prefix for a placed item of this type (only used to make ids readable).
+function itemIdPrefix(item) {
+    return { text: "text_doc_", ink: "ink_doc_", redact: "redact_doc_" }[item && item.type] || "sig_doc_";
+}
+
 class PDFStudioStore {
     constructor() {
         this.listeners = new Map();
@@ -326,6 +331,33 @@ class PDFStudioStore {
         return newInkItem;
     }
 
+    // Redaction boxes (type: "redact"): on save, everything under the box is permanently removed
+    // from the page (core.apply_redactions) and the box is filled with `color`.
+    addRedactToDoc(customProps = {}) {
+        this.recordStateSnapshot();
+        const items = this.state.signature.activeSignaturesOnDoc;
+        const maxZ = items.length > 0 ? Math.max(...items.map(s => s.zIndex || 1)) + 1 : 1;
+        const item = {
+            id: "redact_doc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            type: "redact",
+            color: "#000000",
+            page: this.state.document.currentPage || 1,
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 20,
+            rotation: 0,
+            opacity: 1.0,
+            zIndex: maxZ,
+            locked: false,
+            confirmed: false,
+            ...customProps
+        };
+        items.push(item);
+        this.emit("signatures:doc_updated", items);
+        return item;
+    }
+
     updateSignatureOnDoc(id, newProps, recordHistory = false) {
         if (recordHistory) {
             this.recordStateSnapshot();
@@ -333,6 +365,7 @@ class PDFStudioStore {
         const sig = this.state.signature.activeSignaturesOnDoc.find(s => s.id === id);
         if (sig) {
             Object.assign(sig, newProps);
+            if (sig.type === "redact") sig.rotation = 0; // redactions are upright rectangles
             if (sig.origWidth && sig.width) sig.scaleX = sig.width / sig.origWidth;
             if (sig.origHeight && sig.height) sig.scaleY = sig.height / sig.origHeight;
             // Sync placement if active
@@ -361,7 +394,7 @@ class PDFStudioStore {
         if (!src) return null;
         this.recordStateSnapshot();
         const maxZ = Math.max(...items.map(s => s.zIndex || 1)) + 1;
-        const prefix = src.type === "text" ? "text_doc_" : (src.type === "ink" ? "ink_doc_" : "sig_doc_");
+        const prefix = itemIdPrefix(src);
         const copy = {
             ...src,
             id: prefix + Date.now() + "_" + Math.floor(Math.random() * 1000),
@@ -383,7 +416,7 @@ class PDFStudioStore {
         const items = this.state.signature.activeSignaturesOnDoc;
         this.recordStateSnapshot();
         const maxZ = items.length > 0 ? Math.max(...items.map(s => s.zIndex || 1)) + 1 : 1;
-        const prefix = item.type === "text" ? "text_doc_" : (item.type === "ink" ? "ink_doc_" : "sig_doc_");
+        const prefix = itemIdPrefix(item);
         const copy = {
             ...JSON.parse(JSON.stringify(item)), // deep: ink strokes are nested arrays
             id: prefix + Date.now() + "_" + Math.floor(Math.random() * 1000),

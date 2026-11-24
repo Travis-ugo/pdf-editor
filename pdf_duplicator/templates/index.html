@@ -235,6 +235,9 @@
                     <button id="toolEraserBtn" class="tool-btn sign-only" title="Eraser: paint over the page in its own color (E)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
                     </button>
+                    <button id="toolRedactBtn" class="tool-btn sign-only" title="Redact: drag over content to remove it from the file for good (R)">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="8" rx="1.5" fill="currentColor" fill-opacity="0.9"/><path d="M4 4h6M14 4h6M4 20h9M17 20h3"/></svg>
+                    </button>
                     <button id="toolStampBtn" class="tool-btn sign-only" title="Stamp signature (S)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c2.5-4 4.5-9 7-9 2 0-.5 8 2 8s2.5-4 4.5-4 1.5 3 4.5 3"/><path d="M3 21h18"/></svg>
                     </button>
@@ -468,7 +471,33 @@
                             <span id="eraserWidthValue" class="badge-rot">12 pt</span>
                         </div>
                         <input type="range" id="eraserWidthSlider" min="2" max="60" value="12" step="1" class="apple-slider width-full">
-                        <p class="tray-subtext eraser-note">Covers what's underneath; text under it can still be found by copying or searching the PDF.</p>
+                        <p class="tray-subtext eraser-note">Covers what's underneath; text under it can still be found by copying or searching the PDF. To remove it for good, use Redact <kbd>R</kbd>.</p>
+                    </div>
+                </section>
+
+                <!-- Redact: content under these boxes is removed from the saved file, not just covered -->
+                <section id="redactControlsCard" class="panel-section sign-only">
+                    <div class="section-title">Redact</div>
+                    <p id="redactHint" class="tray-subtext">Pick Redact <kbd>R</kbd> and drag over text or images to <strong>remove them from the file</strong>, not just cover them.</p>
+                    <p id="redactCount" class="redact-count hidden"></p>
+
+                    <div id="redactEditor" class="eraser-editor hidden">
+                        <div class="eraser-color-row">
+                            <button type="button" id="redactColorSwatch" class="eraser-swatch" title="Fill color: click for more colors" aria-haspopup="dialog"></button>
+                            <div class="eraser-color-text">
+                                <span class="prop-label">Fill</span>
+                                <span id="redactColorHex" class="eraser-hex">#000000</span>
+                            </div>
+                            <button type="button" id="redactPickBtn" class="chip-btn eraser-pick-btn" title="Pick the fill from the page (I, or Alt-click while redacting), so the area blends in">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3z"/></svg>
+                                Pick fill from page
+                            </button>
+                        </div>
+                        <div class="eraser-presets redact-presets" role="group" aria-label="Fill colors"></div>
+                        <p class="redact-note">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+                            <span>When you save, text, images and drawings under each box are <strong>deleted</strong> from the PDF and the box is filled with this color. Your original file isn't changed.</span>
+                        </p>
                     </div>
                 </section>
 

@@ -111,6 +111,8 @@ class EditorE2E(unittest.TestCase):
             self.page.dispatch_event("#pdfPasswordInput", "change")
         self.page.wait_for_function("window.appStore.state.document.fileId && document.getElementById('pdfPageImg').complete && document.getElementById('pdfPageImg').naturalWidth > 0")
         self.page.wait_for_selector("#pdfCanvasContainer:not(.hidden)")
+        # The launch screen fades out over the page; raw mouse input (drags) doesn't wait for it.
+        self.page.wait_for_selector("#appLoader", state="detached")
 
     def items(self):
         return self.page.evaluate("window.appStore.state.signature.activeSignaturesOnDoc.map(s => ({...s, dataUrl: undefined}))")
@@ -312,6 +314,70 @@ class EditorE2E(unittest.TestCase):
         self.page.mouse.click(*self.page_point(300, 500))
         self.page.click('.eraser-preset[data-color="#ffffff"]')
         self.assertEqual(self.items()[0]["color"], "#ffffff")
+
+    def drag_on_page(self, x0, y0, x1, y1):
+        sx, sy = self.page_point(x0, y0)
+        ex, ey = self.page_point(x1, y1)
+        self.page.mouse.move(sx, sy)
+        self.page.mouse.down()
+        for i in range(1, 11):
+            self.page.mouse.move(sx + (ex - sx) * i / 10, sy + (ey - sy) * i / 10)
+        self.page.mouse.up()
+
+    def test_redact_removes_text_from_the_saved_file(self):
+        self.open_pdf(self.make_tinted_pdf())
+        self.page.keyboard.press("r")
+        self.assertTrue(self.page.is_visible("#redactEditor"))
+        # "Erase this line" is at y ~ 75..97 from the top; drag over all of it
+        self.drag_on_page(68, 70, 260, 100)
+        items = self.items()
+        self.assertEqual(len(items), 1)
+        r = items[0]
+        self.assertEqual(r["type"], "redact")
+        self.assertEqual((r["x"], r["y"], r["width"], r["height"]), (68, 70, 192, 30))
+        self.assertEqual(r["color"], "#000000")
+        self.assertIn("1 area will be removed", self.page.inner_text("#redactCount"))
+        # Redaction boxes can't be rotated
+        self.page.click("#sigRot90Btn")
+        self.assertEqual(self.items()[0]["rotation"], 0)
+
+        out = self.save("e2e-redact")
+        self.assertEqual(self.page.inner_text("#saveResultTitle"), "Redacted PDF saved")
+        doc = fitz.open(out)
+        self.assertNotIn("Erase", doc[0].get_text())
+        pix = doc[0].get_pixmap(clip=fitz.Rect(100, 80, 101, 81))
+        self.assertEqual(tuple(pix.samples[:3]), (0, 0, 0))
+        doc.close()
+
+    def test_redact_fill_picked_from_page_and_tap_box(self):
+        self.open_pdf(self.make_tinted_pdf())
+        self.page.click("#toolRedactBtn")
+        self.page.click("#redactPickBtn")
+        self.page.mouse.click(*self.page_point(400, 400))
+        self.assertTrue(self.near(self.page.inner_text("#redactColorHex"), (255, 240, 200)))
+        self.assertEqual(self.items(), [])  # picking didn't make a box
+        # A tap (no drag) drops a default-size box centered on it
+        self.page.mouse.click(*self.page_point(160, 86))
+        r = self.items()[0]
+        self.assertEqual((r["width"], r["height"]), (120, 20))
+        self.assertAlmostEqual(r["x"] + 60, 160, delta=1)
+        self.assertTrue(self.near(r["color"], (255, 240, 200)))
+        # Free resize: drag the bottom-right corner down only -> taller, same width
+        self.page.keyboard.press("Escape")
+        self.page.locator(".redact-overlay").first.click()
+        h = self.page.locator(".redact-overlay.active-selected .handle-se").bounding_box()
+        self.page.mouse.move(h["x"] + 6, h["y"] + 6)
+        self.page.mouse.down()
+        self.page.mouse.move(h["x"] + 6, h["y"] + 40, steps=5)
+        self.page.mouse.up()
+        r2 = self.items()[0]
+        self.assertAlmostEqual(r2["width"], 120, delta=1)
+        self.assertGreater(r2["height"], 30)
+        # White fill from the presets, applied to the selected box
+        self.page.click('.redact-presets .eraser-preset[data-color="#ffffff"]')
+        self.assertEqual(self.items()[0]["color"], "#ffffff")
+        out = self.save("e2e-redact-fill")
+        self.assertNotIn("Erase", fitz.open(out)[0].get_text())
 
     def test_saved_card(self):
         self.open_pdf(self.sample)

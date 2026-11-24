@@ -479,6 +479,32 @@ class TestPreview(WebTestCase):
         self.assertEqual(self.client.post("/api/preview-pdf", data={}).status_code, 400)
 
 
+class TestRedactApi(WebTestCase):
+    def test_sign_with_redaction_removes_text(self):
+        fid = self.file_id(make_pdf(pages=2))
+        # "Page 1" is drawn at (72, 700) from the bottom in 24pt: top-down y ~ 75..98
+        items = [{"type": "redact", "x": 60, "y": 70, "width": 120, "height": 34, "page": 1,
+                  "color": "#000000", "y_from_top": True}]
+        res = self.post_json("/api/sign", {"file_id": fid, "signatures_json": json.dumps(items)})
+        self.assertEqual(res.status_code, 200, res.get_json())
+        texts = page_texts(self.output_file(res.get_json()["filename"]))
+        self.assertEqual(texts, ["", "Page 2"])
+
+    def test_preview_shows_redaction(self):
+        fid = self.file_id(make_pdf(pages=1))
+        items = [{"type": "redact", "x": 0, "y": 0, "width": 612, "height": 792, "page": 1,
+                  "color": "#ff0000", "y_from_top": True}]
+        res = self.client.post("/api/preview-pdf", data={"file_id": fid, "signatures_json": json.dumps(items)})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json()["total_pages"], 1)
+
+    def test_bad_redaction_color(self):
+        fid = self.file_id()
+        items = [{"type": "redact", "x": 0, "y": 0, "width": 10, "height": 10, "page": 1, "color": "#zzzzzz"}]
+        res = self.post_json("/api/sign", {"file_id": fid, "signatures_json": json.dumps(items)})
+        self.assertEqual(res.status_code, 400)
+
+
 class TestHostedMode(WebTestCase):
     """On a public server, saved files must not be reachable by guessing their names."""
 

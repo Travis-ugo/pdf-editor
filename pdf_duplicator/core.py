@@ -1,6 +1,10 @@
 import functools
+import math
 import os
+import shutil
+import tempfile
 
+import fitz  # PyMuPDF: redaction (true content removal)
 from pypdf import PdfReader, PdfWriter
 
 
@@ -490,6 +494,99 @@ def _visible_page_space(page):
     return w, h, (1, 0, 0, 1, x0, y0)
 
 
+def _hex_to_rgb01(value, default=(0.0, 0.0, 0.0)):
+    h = str(value or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return default
+    try:
+        return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    except ValueError:
+        raise ValueError(f"Invalid redaction color: {value}")
+
+
+def _displayed_box(item, page_w, page_h):
+    """
+    (x0, y0, x1, y1) of an item in displayed page space with the origin top-left, clipped to the
+    page. A rotated box is replaced by its bounding box, so everything the user saw covered is
+    covered (redactions are axis-aligned).
+    """
+    x = float(item.get("x", 0))
+    w = float(item.get("width", 0))
+    h = float(item.get("height", 0))
+    y = float(item.get("y", 0))
+    if not item.get("y_from_top", True):
+        y = page_h - y - h
+    rot = math.radians(float(item.get("rotation", 0) or 0))
+    if rot:
+        cx, cy = x + w / 2, y + h / 2
+        c, s = abs(math.cos(rot)), abs(math.sin(rot))
+        bw, bh = w * c + h * s, w * s + h * c
+        x, y, w, h = cx - bw / 2, cy - bh / 2, bw, bh
+    x0, y0 = max(0.0, x), max(0.0, y)
+    x1, y1 = min(page_w, x + w), min(page_h, y + h)
+    if x1 - x0 <= 0 or y1 - y0 <= 0:
+        return None
+    return x0, y0, x1, y1
+
+
+def apply_redactions(input_path, output_path, redactions, password=None, pages_spec=None):
+    """
+    Permanently removes page content under each redaction box and paints the box in its fill color.
+
+    Unlike an overlay (which only hides what's underneath), this rewrites the page: text under the
+    box is deleted (it can't be copied, searched or extracted any more), image pixels under it are
+    blanked, and vector drawings entirely inside it are dropped. The output is saved with unused
+    objects purged, so the removed content isn't left behind elsewhere in the file. The output is
+    not encrypted.
+
+    :param redactions: [{'x', 'y', 'width', 'height' (displayed page space, points), 'y_from_top',
+                        'rotation', 'color' (fill, hex), 'page' / 'pages_spec'}]
+    :return: number of boxes applied
+    """
+    doc = fitz.open(input_path)
+    try:
+        if doc.needs_pass:
+            if not password or not doc.authenticate(password):
+                raise ValueError("Incorrect password for the PDF file." if password else
+                                 "The PDF is encrypted. Please provide a password.")
+        total = len(doc)
+        per_page = {}
+        for item in redactions:
+            spec = item.get("pages_spec")
+            if spec is None or spec == "":
+                spec = item.get("page")
+            if spec is None or spec == "":
+                spec = pages_spec
+            fill = _hex_to_rgb01(item.get("color"))
+            for idx in parse_page_range(spec, total):
+                per_page.setdefault(idx, []).append((item, fill))
+
+        applied = 0
+        for idx, items in sorted(per_page.items()):
+            page = doc[idx]
+            # page.rect is the page as displayed (crop box, after /Rotate), origin top-left: the same
+            # space the editor places items in. Redact annotations take unrotated page coordinates.
+            shown = page.rect
+            for item, fill in items:
+                box = _displayed_box(item, shown.width, shown.height)
+                if not box:
+                    continue
+                rect = (fitz.Rect(*box) * page.derotation_matrix).normalize()
+                page.add_redact_annot(rect, fill=fill, cross_out=False)
+                applied += 1
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_PIXELS,               # blank only the covered pixels (scans)
+                graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,  # keep e.g. a page background
+                text=fitz.PDF_REDACT_TEXT_REMOVE,
+            )
+        doc.save(output_path, garbage=4, deflate=True, clean=True)
+        return applied
+    finally:
+        doc.close()
+
+
 def add_signature_to_pdf(
     input_path,
     output_path,
@@ -525,6 +622,9 @@ def add_signature_to_pdf(
                        An item with 'type': 'ink' draws vector strokes (pen drawings, check marks)
                        and takes 'strokes' ([[[x, y], ...], ...] in a base box), 'base_width',
                        'base_height', 'line_width' (in base units) and 'color' (hex).
+                       An item with 'type': 'redact' permanently removes the content under its
+                       box and fills it with 'color' (see apply_redactions); it's applied before
+                       everything else, so other items can be placed on top of it.
     :param rotation: Rotation angle in degrees clockwise (0 to 360)
     """
     import io
@@ -544,6 +644,24 @@ def add_signature_to_pdf(
             raise ValueError("Incorrect password for the PDF file.")
 
     total_pages = len(reader.pages)
+
+    # Redactions go first, on the original page content: they rewrite the pages (removing what's
+    # under them) and the result -- decrypted -- is what every other item is drawn onto.
+    redactions = [s for s in (signatures or []) if s.get("type") == "redact"]
+    if redactions:
+        signatures = [s for s in signatures if s.get("type") != "redact"]
+        fd, redacted_path = tempfile.mkstemp(suffix=".pdf", prefix="redacted_")
+        os.close(fd)
+        try:
+            apply_redactions(input_path, redacted_path, redactions, password=password, pages_spec=pages_spec)
+            if not signatures:
+                shutil.move(redacted_path, output_path)
+                return
+            return add_signature_to_pdf(redacted_path, output_path, pages_spec=pages_spec,
+                                        signatures=signatures, rotation=rotation)
+        finally:
+            if os.path.exists(redacted_path):
+                os.remove(redacted_path)
 
     if not signatures:
         if not signature_img:
