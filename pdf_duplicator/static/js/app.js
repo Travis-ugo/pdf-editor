@@ -162,12 +162,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const inkColorBtns = document.querySelectorAll(".ink-color-btn");
     const inkWidthSlider = document.getElementById("inkWidthSlider");
     const inkWidthValue = document.getElementById("inkWidthValue");
-    let activeInkTool = null; // null | "pen" | "mark"
+    let activeInkTool = null; // null | "pen" | "mark" | "eraser"
     let lastInkId = null;     // pen item the next nearby stroke prefers to join (one handwritten word/line = one item)
     const penSessionIds = new Set(); // pen items drawn since the tool was picked; only these get joined
     const penSettings = { color: "#000000", width: 1.5 };
     // A new mark copies the size/weight of the last one placed or adjusted, so a form's boxes match.
     const markSettings = { shape: "check", size: 12, lineRatio: 0.13 };
+
+    // Eraser (see "Eraser" below): wide ink strokes in a color picked from the page, so they paint
+    // over whatever is there. auto = each stroke takes the page color where it starts.
+    const toolEraserBtn = document.getElementById("toolEraserBtn");
+    const inkBannerSwatch = document.getElementById("inkBannerSwatch");
+    const inkBannerPickBtn = document.getElementById("inkBannerPickBtn");
+    const colorLoupe = document.getElementById("colorPickLoupe");
+    const eraserSettings = { color: "#ffffff", width: 12, auto: false };
+    let eraserPicking = false; // the next press on the page picks the eraser color
+    const eraserControls = {
+        hint: document.getElementById("eraserHint"),
+        editor: document.getElementById("eraserEditor"),
+        swatch: document.getElementById("eraserColorSwatch"),
+        hex: document.getElementById("eraserColorHex"),
+        pickBtn: document.getElementById("eraserPickBtn"),
+        presets: document.querySelector(".eraser-presets"),
+        auto: document.getElementById("eraserAutoToggle"),
+        width: document.getElementById("eraserWidthSlider"),
+        widthValue: document.getElementById("eraserWidthValue")
+    };
+    const ERASER_RECENTS_KEY = "pdf_studio_eraser_colors";
+    let eraserRecents = [];
+    try { eraserRecents = JSON.parse(localStorage.getItem(ERASER_RECENTS_KEY) || "[]").filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 5); }
+    catch (e) { eraserRecents = []; }
+
 
     // --- PWA Installation Event Listener ---
     let deferredInstallPrompt = null;
@@ -2599,22 +2624,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const COLOR_PRESETS = ["#000000", "#434343", "#999999", "#ffffff", "#003366", "#0066cc", "#0d99ff", "#14ae5c",
                            "#cc0000", "#f24822", "#ffa629", "#9747ff"];
     let colorPopover = null;
+    let colorPopoverTarget = null;
+
+    // What a color picker edits: the text color by default; the eraser passes its own target.
+    const textColorTarget = {
+        label: "Text color",
+        get anchor() { return textColorSwatch; },
+        value: () => textColorInput.value,
+        apply: (hex, type) => {
+            textColorInput.value = hex;
+            setColorSwatch(hex);
+            textColorInput.dispatchEvent(new Event(type));
+        }
+    };
 
     function closeColorPicker() {
         if (!colorPopover) return;
         colorPopover.remove();
         colorPopover = null;
-        if (textColorSwatch) textColorSwatch.setAttribute("aria-expanded", "false");
+        if (colorPopoverTarget && colorPopoverTarget.anchor) colorPopoverTarget.anchor.setAttribute("aria-expanded", "false");
+        colorPopoverTarget = null;
     }
 
-    function openColorPicker() {
+    function openColorPicker(target = textColorTarget) {
         closeColorPicker();
-        let hsv = colorMath.rgbToHsv(colorMath.hexToRgb(textColorInput.value) || { r: 0, g: 0, b: 0 });
+        let hsv = colorMath.rgbToHsv(colorMath.hexToRgb(target.value()) || { r: 0, g: 0, b: 0 });
 
         const pop = document.createElement("div");
         pop.className = "color-popover";
         pop.setAttribute("role", "dialog");
-        pop.setAttribute("aria-label", "Text color");
+        pop.setAttribute("aria-label", target.label);
         pop.innerHTML = `
             <div class="cp-sv" tabindex="0" aria-label="Saturation and brightness"><div class="cp-sv-thumb"></div></div>
             <div class="cp-row">
@@ -2652,9 +2691,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // input = live preview while dragging; change = one undo step when the gesture ends
         function emit(type) {
-            textColorInput.value = currentHex();
-            setColorSwatch(textColorInput.value);
-            textColorInput.dispatchEvent(new Event(type));
+            target.apply(currentHex(), type);
         }
 
         function dragOn(el, onMove) {
@@ -2707,7 +2744,7 @@ document.addEventListener("DOMContentLoaded", () => {
         };
         hexInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") { e.preventDefault(); applyHex(); }
-            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); textColorSwatch.focus(); }
+            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); target.anchor.focus(); }
         });
         hexInput.addEventListener("blur", applyHex);
 
@@ -2726,11 +2763,11 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         pop.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); textColorSwatch.focus(); }
+            if (e.key === "Escape") { e.stopPropagation(); closeColorPicker(); target.anchor.focus(); }
         });
 
         document.body.appendChild(pop);
-        const r = textColorSwatch.getBoundingClientRect();
+        const r = target.anchor.getBoundingClientRect();
         const pw = pop.offsetWidth, ph = pop.offsetHeight;
         // Open to the left of the properties panel so it doesn't cover the controls.
         let left = r.right - pw;
@@ -2739,23 +2776,28 @@ document.addEventListener("DOMContentLoaded", () => {
         pop.style.left = `${Math.max(8, Math.min(left, window.innerWidth - pw - 8))}px`;
         pop.style.top = `${top}px`;
         colorPopover = pop;
-        textColorSwatch.setAttribute("aria-expanded", "true");
+        colorPopoverTarget = target;
+        target.anchor.setAttribute("aria-expanded", "true");
         render();
         sv.focus();
     }
 
     if (textColorSwatch) {
         textColorSwatch.addEventListener("click", () => colorPopover ? closeColorPicker() : openColorPicker());
-        window.addEventListener("mousedown", (e) => {
-            if (colorPopover && !colorPopover.contains(e.target) && !textColorSwatch.contains(e.target)) closeColorPicker();
+        window.addEventListener("pointerdown", (e) => {
+            const anchor = colorPopoverTarget && colorPopoverTarget.anchor;
+            if (colorPopover && !colorPopover.contains(e.target) && !(anchor && anchor.contains(e.target))) closeColorPicker();
         });
-        window.addEventListener("resize", closeColorPicker);
+        window.addEventListener("resize", () => { if (!isTouchUi()) closeColorPicker(); });
         setColorSwatch(textColorInput.value);
     }
 
     // The pickers edit the selected box; close them when the selection goes away.
     store.subscribe("signatures:doc_updated", () => {
-        if (!getSelectedTextItem()) { closeFontPicker(); closeColorPicker(); }
+        if (!getSelectedTextItem()) {
+            closeFontPicker();
+            if (colorPopoverTarget === textColorTarget) closeColorPicker();
+        }
     });
 
     // --- Action Processing ---
@@ -2836,8 +2878,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        let downloadUrl = "";
-        let filePathHeader = "";
 
         fetch(endpoint, {
             method: "POST",
@@ -2854,8 +2894,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         throw new Error(`Server Error (${response.status}): ${response.statusText}`);
                     });
             }
-            downloadUrl = response.headers.get("X-Download-Url") || "";
-            filePathHeader = response.headers.get("X-File-Path") || "";
             return response.blob();
         })
         .then(blob => {
@@ -2872,20 +2910,9 @@ document.addEventListener("DOMContentLoaded", () => {
             a.download = fileName;
             document.body.appendChild(a);
             a.click();
+            setTimeout(() => a.remove(), 1000);
 
-            const directLink = downloadUrl || url;
-            const successHtml = `
-                <div>
-                    <strong>✅ PDF Saved Successfully!</strong><br>
-                    <a href="${escapeHtml(directLink)}" download="${escapeHtml(fileName)}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600; display: inline-block; margin-top: 6px;">
-                        📥 Downloaded ${escapeHtml(fileName)} (Click here to open or re-download)
-                    </a>
-                </div>
-            `;
-            showStatus(successHtml, "success", true);
-            setTimeout(() => {
-                a.remove();
-            }, 1000);
+            showSaveResult({ blob, url, fileName, mode: store.state.currentMode });
         })
         .catch(err => {
             showStatus(err.message, "error");
@@ -2919,8 +2946,14 @@ document.addEventListener("DOMContentLoaded", () => {
         pdfCanvasContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
     }
 
+    // A field that takes typed text. Checkboxes, sliders and the like keep focus after a click,
+    // but must not swallow tool shortcuts or Esc.
     function isTypingTarget(el) {
-        return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
+        if (!el) return false;
+        if (el.tagName === "INPUT") {
+            return !["checkbox", "radio", "range", "button", "submit", "reset", "color", "file"].includes((el.type || "").toLowerCase());
+        }
+        return ["TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable;
     }
 
     // --- Bottom Tool Bar ---
@@ -2934,6 +2967,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (toolStampBtn) toolStampBtn.classList.toggle("active", isStampModeActive);
         if (toolPenBtn) toolPenBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "pen");
         if (toolMarkBtn) toolMarkBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "mark");
+        if (toolEraserBtn) toolEraserBtn.classList.toggle("active", !isPanModeActive && activeInkTool === "eraser");
     }
 
     function selectMoveTool() {
@@ -2973,6 +3007,8 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (key === "t" && store.state.currentMode === "sign") { e.preventDefault(); addTextBtn && addTextBtn.click(); }
         else if (key === "s" && store.state.currentMode === "sign") selectStampTool();
         else if (key === "p" && store.state.currentMode === "sign") setInkTool(activeInkTool === "pen" ? null : "pen");
+        else if (key === "e" && store.state.currentMode === "sign") toggleEraserTool();
+        else if (key === "i" && store.state.currentMode === "sign") setEraserPicking(!eraserPicking);
         else if ((key === "k" || key === "x") && store.state.currentMode === "sign") {
             setMarkShape(key === "k" ? "check" : "cross");
             setInkTool("mark");
@@ -3249,20 +3285,48 @@ document.addEventListener("DOMContentLoaded", () => {
         activeInkTool = tool;
         lastInkId = null;
         penSessionIds.clear();
+        if (tool !== "eraser" && eraserPicking) setEraserPicking(false, { quiet: true });
         if (tool && isStampModeActive) setStampMode(false);
         if (tool && isPanModeActive) setPanMode(false);
         if (stageViewport) {
-            stageViewport.classList.toggle("pen-active", tool === "pen");
+            // The eraser draws like the pen (same cursor, touch handling and hidden handles).
+            stageViewport.classList.toggle("pen-active", tool === "pen" || tool === "eraser");
+            stageViewport.classList.toggle("eraser-active", tool === "eraser");
             stageViewport.classList.toggle("mark-active", tool === "mark");
         }
-        if (inkBanner) {
-            inkBanner.classList.toggle("hidden", !tool);
-            inkBannerText.innerHTML = tool === "pen"
-                ? "Draw or write on the page · <kbd>Esc</kbd> when done"
-                : `Click a box to place a ${markSettings.shape === "check" ? "check mark" : "cross"} · <kbd>Esc</kbd> when done`;
-        }
+        syncInkBanner();
         syncInkPanel();
         syncToolbar();
+    }
+
+    function syncInkBanner() {
+        if (!inkBanner) return;
+        const tool = activeInkTool;
+        inkBanner.classList.toggle("hidden", !tool);
+        const touch = isTouchUi();
+        const tap = touch ? "Tap" : "Click";
+        let html;
+        if (tool === "pen") {
+            html = `Draw or write on the page${touch ? "" : " · <kbd>Esc</kbd> when done"}`;
+        } else if (tool === "mark") {
+            html = `${tap} a box to place a ${markSettings.shape === "check" ? "check mark" : "cross"}${touch ? "" : " · <kbd>Esc</kbd> when done"}`;
+        } else if (tool === "eraser" && eraserPicking) {
+            html = touch ? "Slide to a color, then lift" : "Click the page to pick the eraser color · <kbd>Esc</kbd> to cancel";
+        } else if (tool === "eraser") {
+            html = eraserSettings.auto
+                ? "Paint over anything · each stroke matches the page where it starts"
+                : `Paint over anything to cover it${touch ? "" : " · <kbd>Alt</kbd>-click to pick the color"}`;
+        }
+        if (html !== undefined) inkBannerText.innerHTML = html;
+        const showSwatch = tool === "eraser" && !eraserSettings.auto;
+        if (inkBannerSwatch) {
+            inkBannerSwatch.classList.toggle("hidden", !showSwatch);
+            inkBannerSwatch.style.background = eraserSettings.color;
+        }
+        if (inkBannerPickBtn) {
+            inkBannerPickBtn.classList.toggle("hidden", tool !== "eraser");
+            inkBannerPickBtn.textContent = eraserPicking ? "Cancel" : "Pick color";
+        }
     }
 
     function setMarkShape(shape) {
@@ -3274,8 +3338,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Shows the pen/mark controls for the selected ink item, or for the active tool's next item.
     function syncInkPanel() {
         if (!inkEditor) return;
-        const sel = getSelectedInkItem();
-        const show = !!sel || !!activeInkTool;
+        let sel = getSelectedInkItem();
+        // Eraser strokes have their own panel (color from the page, size).
+        syncEraserPanel(sel && sel.eraser ? sel : null);
+        if (sel && sel.eraser) sel = null;
+        const show = !!sel || activeInkTool === "pen" || activeInkTool === "mark";
         inkEditor.classList.toggle("hidden", !show);
         if (inkEditorHint) inkEditorHint.classList.toggle("hidden", show);
         if (!show) return;
@@ -3299,13 +3366,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Joins `points` (page coords) to a nearby item drawn in this pen session with the same pen on
     // the same page (the most recent one first); otherwise starts a new item.
-    function commitPenStroke(points) {
+    // `brush` is { color, width, eraser } for this stroke (the pen's settings by default).
+    function commitPenStroke(points, brush = { color: penSettings.color, width: penSettings.width, eraser: false }) {
         const items = store.state.signature.activeSignaturesOnDoc;
         const page = store.state.document.currentPage;
-        const lw = penSettings.width;
+        const lw = brush.width;
         const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
         const joinable = (t) => penSessionIds.has(t.id) && !t.shape && t.page === page
-            && t.color === penSettings.color && t.lineWidth === lw && !t.rotation
+            && !!t.eraser === !!brush.eraser
+            && t.color === brush.color && t.lineWidth === lw && !t.rotation
             && Math.abs(t.width - t.baseWidth) < 0.01 && Math.abs(t.height - t.baseHeight) < 0.01
             && Math.min(...xs) <= t.x + t.width + INK_JOIN_GAP && Math.max(...xs) >= t.x - INK_JOIN_GAP
             && Math.min(...ys) <= t.y + t.height + INK_JOIN_GAP && Math.max(...ys) >= t.y - INK_JOIN_GAP;
@@ -3317,7 +3386,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const existing = target.strokes.map(s => s.map(([x, y]) => [x + target.x, y + target.y]));
             store.updateSignatureOnDoc(target.id, inkGeometry([...existing, points], lw), true);
         } else {
-            const sig = store.addInkToDoc({ ...inkGeometry([points], lw), color: penSettings.color, lineWidth: lw, page });
+            const sig = store.addInkToDoc({ ...inkGeometry([points], lw), color: brush.color, lineWidth: lw, page,
+                                            ...(brush.eraser ? { eraser: true } : {}) });
             lastInkId = sig.id;
             penSessionIds.add(sig.id);
         }
@@ -3369,8 +3439,10 @@ document.addEventListener("DOMContentLoaded", () => {
             return [Math.max(0, Math.min(pageDim.width, p.x)), Math.max(0, Math.min(pageDim.height, p.y))];
         };
 
-        const wantsPen = (e) => activeInkTool === "pen" && !isPanModeActive && !isPanning
+        const wantsPen = (e) => (activeInkTool === "pen" || activeInkTool === "eraser") && !isPanModeActive && !isPanning
             && e.button === 0 && !!e.target.closest("#pdfCanvasContainer");
+
+        let pick = null; // { pointerId } while picking the eraser color with a pressed pointer
 
         stageViewport.addEventListener("pointerdown", (e) => {
             if (!wantsPen(e)) return;
@@ -3378,6 +3450,20 @@ document.addEventListener("DOMContentLoaded", () => {
             e.stopPropagation();
             closeItemContextMenu();
             stageViewport.setPointerCapture(e.pointerId);
+
+            // Eraser color picking: Pick mode, or Alt/Option-click while erasing. The color is
+            // taken where the pointer is released, so a finger can slide to the exact spot while
+            // the magnifier (shown above the finger) previews it.
+            if (activeInkTool === "eraser" && (eraserPicking || e.altKey)) {
+                pick = { pointerId: e.pointerId };
+                showColorLoupe(e.clientX, e.clientY, e.pointerType);
+                return;
+            }
+
+            const brush = activeInkTool === "eraser"
+                ? { color: (eraserSettings.auto && pageColorAt(e.clientX, e.clientY)) || eraserSettings.color,
+                    width: eraserSettings.width, eraser: true }
+                : { color: penSettings.color, width: penSettings.width, eraser: false };
 
             const doc = store.state.document;
             const pageDim = doc.pageDimensions[doc.currentPage - 1] || doc.pageDimensions[0];
@@ -3388,15 +3474,15 @@ document.addEventListener("DOMContentLoaded", () => {
             svg.style.height = `${pdfPageImg.clientHeight}px`;
             const line = document.createElementNS(NS, "polyline");
             line.setAttribute("fill", "none");
-            line.setAttribute("stroke", penSettings.color);
-            line.setAttribute("stroke-width", penSettings.width);
+            line.setAttribute("stroke", brush.color);
+            line.setAttribute("stroke-width", brush.width);
             line.setAttribute("stroke-linecap", "round");
             line.setAttribute("stroke-linejoin", "round");
             svg.appendChild(line);
             pdfCanvasContainer.appendChild(svg);
 
             const first = pagePoint(e);
-            stroke = { pointerId: e.pointerId, points: [first], svg, line };
+            stroke = { pointerId: e.pointerId, points: [first], svg, line, brush };
             line.setAttribute("points", `${first[0]},${first[1]} ${first[0] + 0.01},${first[1]}`);
         }, true);
 
@@ -3407,6 +3493,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }, true);
 
         stageViewport.addEventListener("pointermove", (e) => {
+            // Picking: the magnifier follows the pointer (hover with a mouse, or a pressed finger).
+            if (activeInkTool === "eraser" && (pick ? e.pointerId === pick.pointerId : (eraserPicking || e.altKey) && e.pointerType === "mouse")) {
+                if (e.target.closest("#pdfCanvasContainer") || pick) showColorLoupe(e.clientX, e.clientY, e.pointerType);
+                else hideColorLoupe();
+                return;
+            }
+            if (colorLoupe && !colorLoupe.classList.contains("hidden") && !pick) hideColorLoupe();
             if (!stroke || e.pointerId !== stroke.pointerId) return;
             if (stagePinchActive()) {
                 // A second finger went down: this is a pinch-zoom, not handwriting.
@@ -3428,12 +3521,21 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         const endStroke = (e) => {
+            if (pick && e.pointerId === pick.pointerId) {
+                pick = null;
+                hideColorLoupe();
+                if (e.type === "pointercancel") return;
+                const hex = pageColorAt(e.clientX, e.clientY);
+                if (hex) setEraserColor(hex, { fromPage: true });
+                setEraserPicking(false);
+                return;
+            }
             if (!stroke || e.pointerId !== stroke.pointerId) return;
-            const { points, svg } = stroke;
+            const { points, svg, brush } = stroke;
             stroke = null;
             svg.remove();
             if (e.type === "pointercancel") return;
-            commitPenStroke(smoothStroke(points).map(([x, y]) => [round2(x), round2(y)]));
+            commitPenStroke(smoothStroke(points).map(([x, y]) => [round2(x), round2(y)]), brush);
         };
         stageViewport.addEventListener("pointerup", endStroke);
         stageViewport.addEventListener("pointercancel", endStroke);
@@ -3483,6 +3585,161 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         inkWidthSlider.addEventListener("change", () => { widthSnapshotTaken = false; inkWidthSlider.blur(); });
     }
+
+    // --- Eraser ---
+    // Color of the rendered page (not the items on it) at a screen point, as #rrggbb; null when
+    // outside the page. Averages a 3x3 pixel patch so anti-aliased text edges don't skew it.
+    let pageSampler = { src: null, ctx: null, w: 0, h: 0 };
+    function pageColorAt(clientX, clientY) {
+        const img = pdfPageImg;
+        if (!img || !img.naturalWidth) return null;
+        const rect = img.getBoundingClientRect();
+        const u = (clientX - rect.left) / rect.width;
+        const v = (clientY - rect.top) / rect.height;
+        if (!(u >= 0 && u <= 1 && v >= 0 && v <= 1)) return null;
+        if (pageSampler.src !== img.src) {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0);
+            pageSampler = { src: img.src, ctx, w: canvas.width, h: canvas.height };
+        }
+        const { ctx, w, h } = pageSampler;
+        const x = Math.min(w - 1, Math.max(0, Math.floor(u * w)));
+        const y = Math.min(h - 1, Math.max(0, Math.floor(v * h)));
+        const x0 = Math.max(0, x - 1), y0 = Math.max(0, y - 1);
+        const pw = Math.min(3, w - x0), ph = Math.min(3, h - y0);
+        const data = ctx.getImageData(x0, y0, pw, ph).data;
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let i = 0; i < data.length; i += 4) { r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; }
+        return colorMath.rgbToHex({ r: r / n, g: g / n, b: b / n });
+    }
+
+    function showColorLoupe(clientX, clientY, pointerType) {
+        if (!colorLoupe) return;
+        const hex = pageColorAt(clientX, clientY);
+        if (!hex) { hideColorLoupe(); return; }
+        colorLoupe.querySelector(".loupe-swatch").style.background = hex;
+        colorLoupe.querySelector(".loupe-hex").textContent = hex.toUpperCase();
+        // Above a fingertip so it isn't hidden under it; beside a mouse pointer.
+        const dy = pointerType === "mouse" ? 22 : -78;
+        const dx = pointerType === "mouse" ? 18 : -40;
+        colorLoupe.style.left = `${Math.max(8, Math.min(window.innerWidth - 120, clientX + dx))}px`;
+        colorLoupe.style.top = `${Math.max(8, clientY + dy)}px`;
+        colorLoupe.classList.remove("hidden");
+    }
+
+    function hideColorLoupe() {
+        if (colorLoupe) colorLoupe.classList.add("hidden");
+    }
+
+    function setEraserPicking(on, { quiet = false } = {}) {
+        if (on && activeInkTool !== "eraser") {
+            setInkTool("eraser");
+            if (activeInkTool !== "eraser") return; // no document open
+        }
+        eraserPicking = !!on;
+        if (stageViewport) stageViewport.classList.toggle("color-picking", eraserPicking);
+        if (!eraserPicking) hideColorLoupe();
+        if (eraserControls.pickBtn) eraserControls.pickBtn.classList.toggle("active", eraserPicking);
+        if (!quiet) syncInkBanner();
+    }
+
+    // Sets the color for the next eraser strokes, and for a selected eraser item.
+    function setEraserColor(hex, { fromPage = false, record = true } = {}) {
+        hex = hex.toLowerCase();
+        eraserSettings.color = hex;
+        if (fromPage && eraserSettings.auto) {
+            eraserSettings.auto = false; // picking a color means "use this one"
+            if (eraserControls.auto) eraserControls.auto.checked = false;
+        }
+        if (record) {
+            eraserRecents = [hex, ...eraserRecents.filter(c => c !== hex)].filter(c => c !== "#ffffff").slice(0, 5);
+            try { localStorage.setItem(ERASER_RECENTS_KEY, JSON.stringify(eraserRecents)); } catch (e) { /* storage blocked */ }
+        }
+        lastInkId = null;
+        const sel = getSelectedInkItem();
+        if (sel && sel.eraser && sel.color !== hex) store.updateSignatureOnDoc(sel.id, { color: hex }, record);
+        syncInkPanel();
+        syncInkBanner();
+    }
+
+    function syncEraserPanel(selEraser) {
+        if (!eraserControls.editor) return;
+        const show = !!selEraser || activeInkTool === "eraser";
+        eraserControls.editor.classList.toggle("hidden", !show);
+        if (eraserControls.hint) eraserControls.hint.classList.toggle("hidden", show);
+        if (!show) return;
+        const color = selEraser ? selEraser.color : eraserSettings.color;
+        const width = selEraser ? selEraser.lineWidth * inkScale(selEraser) : eraserSettings.width;
+        const auto = !selEraser && eraserSettings.auto;
+        eraserControls.swatch.style.background = color;
+        eraserControls.swatch.classList.toggle("auto", auto);
+        eraserControls.hex.textContent = auto ? "Matches the page" : color.toUpperCase();
+        eraserControls.auto.checked = eraserSettings.auto;
+        if (document.activeElement !== eraserControls.width) eraserControls.width.value = width;
+        eraserControls.widthValue.textContent = `${Math.round(width * 10) / 10} pt`;
+        eraserControls.pickBtn.classList.toggle("active", eraserPicking);
+        const presets = ["#ffffff", ...eraserRecents];
+        eraserControls.presets.innerHTML = presets.map(c =>
+            `<button type="button" class="eraser-preset${c === color && !auto ? " active" : ""}" data-color="${c}" style="background:${c}" title="${c.toUpperCase()}"></button>`).join("");
+    }
+
+    const eraserColorTarget = {
+        label: "Eraser color",
+        get anchor() { return eraserControls.swatch; },
+        value: () => eraserSettings.color,
+        apply: (hex, type) => setEraserColor(hex, { record: type === "change" })
+    };
+
+    function toggleEraserTool() {
+        setInkTool(activeInkTool === "eraser" && !isPanModeActive ? null : "eraser");
+    }
+
+    if (toolEraserBtn) toolEraserBtn.addEventListener("click", toggleEraserTool);
+    if (inkBannerPickBtn) inkBannerPickBtn.addEventListener("click", () => setEraserPicking(!eraserPicking));
+    if (eraserControls.pickBtn) eraserControls.pickBtn.addEventListener("click", () => setEraserPicking(!eraserPicking));
+    if (eraserControls.swatch) eraserControls.swatch.addEventListener("click", () => {
+        if (colorPopoverTarget === eraserColorTarget) closeColorPicker();
+        else openColorPicker(eraserColorTarget);
+    });
+    if (eraserControls.presets) eraserControls.presets.addEventListener("click", (e) => {
+        const btn = e.target.closest(".eraser-preset");
+        if (!btn) return;
+        if (eraserSettings.auto) { eraserSettings.auto = false; }
+        setEraserColor(btn.dataset.color);
+    });
+    if (eraserControls.auto) eraserControls.auto.addEventListener("change", () => {
+        eraserSettings.auto = eraserControls.auto.checked;
+        if (eraserSettings.auto) setEraserPicking(false, { quiet: true });
+        syncInkPanel();
+        syncInkBanner();
+    });
+    if (eraserControls.width) {
+        let snapshotTaken = false;
+        eraserControls.width.addEventListener("input", () => {
+            const v = parseFloat(eraserControls.width.value) || 12;
+            eraserControls.widthValue.textContent = `${v} pt`;
+            const sel = getSelectedInkItem();
+            if (sel && sel.eraser) {
+                if (!snapshotTaken) { store.recordStateSnapshot(); snapshotTaken = true; }
+                store.updateSignatureOnDoc(sel.id, { lineWidth: round2(v / inkScale(sel)) });
+            } else {
+                eraserSettings.width = v;
+                lastInkId = null;
+            }
+        });
+        eraserControls.width.addEventListener("change", () => { snapshotTaken = false; eraserControls.width.blur(); });
+    }
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && eraserPicking) {
+            e.stopImmediatePropagation(); // cancel picking only; stay in the eraser
+            setEraserPicking(false);
+        }
+    }, true);
+    // Alt/Option held while erasing: show the magnifier straight away.
+    window.addEventListener("keyup", (e) => { if (e.key === "Alt" && !eraserPicking) hideColorLoupe(); });
 
     // --- Stage Canvas Zoom & Global Page Zoom Interception ---
     const zoomOutBtn = document.getElementById("zoomOutBtn");
@@ -3613,6 +3870,100 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
+    // --- "Saved" card shown after a successful save ---
+    const saveResult = {
+        card: document.getElementById("saveResultCard"),
+        title: document.getElementById("saveResultTitle"),
+        name: document.getElementById("saveResultName"),
+        size: document.getElementById("saveResultSize"),
+        open: document.getElementById("saveResultOpen"),
+        download: document.getElementById("saveResultDownload"),
+        share: document.getElementById("saveResultShare"),
+        close: document.getElementById("saveResultClose"),
+        url: null,
+        file: null,
+        timer: null,
+        hovered: false
+    };
+    const SAVE_RESULT_TITLES = {
+        sign: "Signed PDF saved",
+        merge: "Merged PDF saved",
+        duplicate: "Pages duplicated",
+        clone: "Copy saved"
+    };
+
+    function formatBytes(n) {
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function hideSaveResult() {
+        if (!saveResult.card) return;
+        clearTimeout(saveResult.timer);
+        saveResult.card.classList.add("leaving");
+        setTimeout(() => {
+            saveResult.card.classList.add("hidden");
+            saveResult.card.classList.remove("leaving");
+        }, 180);
+    }
+
+    function armSaveResultTimer() {
+        clearTimeout(saveResult.timer);
+        saveResult.timer = setTimeout(() => {
+            if (saveResult.hovered || saveResult.card.contains(document.activeElement)) armSaveResultTimer();
+            else hideSaveResult();
+        }, 12000);
+    }
+
+    function showSaveResult({ blob, url, fileName, mode }) {
+        if (!saveResult.card) return;
+        showStatus(null);
+        // The previous file's link stays valid until the next save replaces it.
+        if (saveResult.url && saveResult.url !== url) URL.revokeObjectURL(saveResult.url);
+        saveResult.url = url;
+        saveResult.title.textContent = SAVE_RESULT_TITLES[mode] || "PDF saved";
+        saveResult.name.textContent = fileName;
+        saveResult.name.title = fileName;
+        saveResult.size.textContent = formatBytes(blob.size);
+        saveResult.open.href = url;
+        saveResult.download.href = url;
+        saveResult.download.setAttribute("download", fileName);
+
+        // Phones: the share sheet saves to Files / sends the PDF in one step.
+        saveResult.file = null;
+        try {
+            const file = new File([blob], fileName, { type: "application/pdf" });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) saveResult.file = file;
+        } catch (e) { /* File constructor unsupported */ }
+        saveResult.share.classList.toggle("hidden", !saveResult.file);
+
+        saveResult.card.classList.remove("hidden", "leaving");
+        // Restart the entrance animation for back-to-back saves.
+        saveResult.card.classList.remove("entering");
+        void saveResult.card.offsetWidth;
+        saveResult.card.classList.add("entering");
+        armSaveResultTimer();
+    }
+
+    if (saveResult.card) {
+        saveResult.close.addEventListener("click", hideSaveResult);
+        saveResult.card.addEventListener("pointerenter", () => { saveResult.hovered = true; });
+        saveResult.card.addEventListener("pointerleave", () => { saveResult.hovered = false; });
+        saveResult.share.addEventListener("click", async () => {
+            if (!saveResult.file) return;
+            try {
+                await navigator.share({ files: [saveResult.file], title: saveResult.file.name });
+            } catch (e) { /* share sheet dismissed */ }
+        });
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && !saveResult.card.classList.contains("hidden")) hideSaveResult();
+        });
+        // A new document or mode makes the card stale.
+        store.subscribe("document:reset", hideSaveResult);
+        store.subscribe("mode:changed", hideSaveResult);
+    }
+
     // --- Full Document Preview Screen Modal ---
     const openFullPreviewBtn = document.getElementById("openFullPreviewBtn");
     const pdfPreviewModal = document.getElementById("pdfPreviewModal");
@@ -3707,9 +4058,8 @@ document.addEventListener("DOMContentLoaded", () => {
             statusAlert.classList.add("hidden");
             return;
         }
-        if (type !== "success") {
-            statusHideTimer = setTimeout(() => statusAlert.classList.add("hidden"), 6000);
-        }
+        // Errors stay a little longer than confirmations ("Copied", ...).
+        statusHideTimer = setTimeout(() => statusAlert.classList.add("hidden"), type === "success" ? 3500 : 6000);
         if (isHtml) {
             statusAlert.innerHTML = msg;
         } else {

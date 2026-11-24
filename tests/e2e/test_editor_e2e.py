@@ -127,7 +127,7 @@ class EditorE2E(unittest.TestCase):
         self.page.fill("#customOutputFilenameInput", filename)
         with self.page.expect_download():
             self.page.click("#processActionBtn")
-        self.page.wait_for_selector("#statusAlert:not(.hidden)")
+        self.page.wait_for_selector("#saveResultCard:not(.hidden)")
         new = set(os.listdir(self.output_dir)) - before
         self.assertEqual(len(new), 1, f"expected one new output file, got {new}")
         return os.path.join(self.output_dir, new.pop())
@@ -224,6 +224,110 @@ class EditorE2E(unittest.TestCase):
         self.assertEqual(shapes, ["check", "cross"])
         out = self.save("e2e-marks")
         self.assertEqual(len(fitz.open(out)[0].get_drawings()), 2)
+
+    def make_tinted_pdf(self):
+        """One page with a cream background (#fff0c8) and black text: the eraser should match the cream."""
+        path = os.path.join(self.fixtures, "tinted.pdf")
+        can = rl_canvas.Canvas(path, pagesize=(612, 792))
+        can.setFillColorRGB(1, 240 / 255, 200 / 255)
+        can.rect(0, 0, 612, 792, stroke=0, fill=1)
+        can.setFillColorRGB(0, 0, 0)
+        can.setFont("Helvetica", 24)
+        can.drawString(72, 700, "Erase this line")
+        can.save()
+        return path
+
+    def erase(self, x0, y, x1):
+        sx, sy = self.page_point(x0, y)
+        ex, _ = self.page_point(x1, y)
+        self.page.mouse.move(sx, sy)
+        self.page.mouse.down()
+        for i in range(1, 16):
+            self.page.mouse.move(sx + (ex - sx) * i / 15, sy)
+        self.page.mouse.up()
+
+    @staticmethod
+    def near(hex_color, rgb, tol=6):
+        h = hex_color.lstrip("#")
+        return all(abs(int(h[i * 2:i * 2 + 2], 16) - c) <= tol for i, c in enumerate(rgb))
+
+    def test_eraser_picks_page_color_and_paints_over(self):
+        self.open_pdf(self.make_tinted_pdf())
+        self.page.keyboard.press("e")
+        self.assertTrue(self.page.is_visible("#eraserEditor"))
+        self.assertEqual(self.page.inner_text("#eraserColorHex"), "#FFFFFF")
+        # Pick the cream from an empty part of the page
+        self.page.click("#eraserPickBtn")
+        self.assertIn("pick", self.page.inner_text("#inkBannerText").lower())
+        self.page.mouse.move(*self.page_point(400, 400))
+        self.assertTrue(self.page.is_visible("#colorPickLoupe"))
+        self.page.mouse.click(*self.page_point(400, 400))
+        picked = self.page.inner_text("#eraserColorHex")
+        self.assertTrue(self.near(picked, (255, 240, 200)), picked)
+        self.assertTrue(self.page.locator("#colorPickLoupe").is_hidden())
+        # Still erasing: paint over the line of text
+        self.erase(70, 88, 260)
+        items = self.items()
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["eraser"])
+        self.assertTrue(self.near(items[0]["color"], (255, 240, 200)))
+        self.assertEqual(items[0]["lineWidth"], 12)
+        # The picked color is offered again next time
+        self.assertGreaterEqual(self.page.locator(".eraser-preset").count(), 2)
+
+        out = self.save("e2e-eraser")
+        page = fitz.open(out)[0]
+        strokes = [d for d in page.get_drawings() if d.get("color") and d.get("width")]
+        self.assertEqual(len(strokes), 1)
+        self.assertAlmostEqual(strokes[0]["width"], 12, delta=0.5)
+        self.assertTrue(all(abs(a - b / 255) < 0.03 for a, b in zip(strokes[0]["color"], (255, 240, 200))))
+        # Painted over: the text is no longer visible where it was
+        pix = page.get_pixmap(clip=fitz.Rect(74, 84, 250, 92))  # the band the 12pt stroke covers
+        dark = sum(1 for i in range(0, len(pix.samples), pix.n) if pix.samples[i] < 120)
+        self.assertEqual(dark, 0)
+
+    def test_eraser_alt_click_and_auto_match(self):
+        self.open_pdf(self.make_tinted_pdf())
+        self.page.click("#toolEraserBtn")
+        # Alt/Option-click picks without entering Pick mode
+        x, y = self.page_point(300, 500)
+        self.page.keyboard.down("Alt")
+        self.page.mouse.click(x, y)
+        self.page.keyboard.up("Alt")
+        self.assertTrue(self.near(self.page.inner_text("#eraserColorHex"), (255, 240, 200)))
+        self.assertEqual(self.items(), [])  # picking didn't draw
+        # Back to white, then let each stroke match the page by itself
+        self.page.click('.eraser-preset[data-color="#ffffff"]')
+        self.assertEqual(self.page.inner_text("#eraserColorHex"), "#FFFFFF")
+        self.page.check("#eraserAutoToggle")
+        self.assertEqual(self.page.inner_text("#eraserColorHex"), "Matches the page")
+        self.erase(300, 300, 400)
+        self.assertTrue(self.near(self.items()[0]["color"], (255, 240, 200)))
+        # Selecting an eraser stroke shows its own panel, not the pen's
+        self.page.keyboard.press("Escape")
+        self.page.locator(".signature-overlay").first.click()
+        self.assertTrue(self.page.is_visible("#eraserEditor"))
+        self.assertTrue(self.page.locator("#inkEditor").is_hidden())
+        self.page.click("#eraserPickBtn")
+        self.page.mouse.click(*self.page_point(300, 500))
+        self.page.click('.eraser-preset[data-color="#ffffff"]')
+        self.assertEqual(self.items()[0]["color"], "#ffffff")
+
+    def test_saved_card(self):
+        self.open_pdf(self.sample)
+        self.add_text("Card")
+        self.save("e2e-card")
+        self.assertEqual(self.page.inner_text("#saveResultTitle"), "Signed PDF saved")
+        self.assertEqual(self.page.inner_text("#saveResultName"), "e2e-card.pdf")
+        self.assertRegex(self.page.inner_text("#saveResultSize"), r"\d+ (B|KB|MB)")
+        self.assertTrue(self.page.get_attribute("#saveResultOpen", "href").startswith("blob:"))
+        self.assertEqual(self.page.get_attribute("#saveResultDownload", "download"), "e2e-card.pdf")
+        self.assertTrue(self.page.locator("#statusAlert").is_hidden())
+        with self.page.expect_download() as dl:
+            self.page.click("#saveResultDownload")
+        self.assertEqual(dl.value.suggested_filename, "e2e-card.pdf")
+        self.page.click("#saveResultClose")
+        self.page.wait_for_selector("#saveResultCard.hidden", state="attached")
 
     def test_copy_check_mark_and_paste_on_another_page(self):
         self.open_pdf(self.sample)
@@ -400,7 +504,7 @@ class EditorE2E(unittest.TestCase):
         with self.page.expect_download() as dl:
             self.page.click("#processActionBtn")
         self.assertEqual(dl.value.suggested_filename, "sign_terms.pdf")
-        self.page.wait_for_selector("#statusAlert:not(.hidden)")
+        self.page.wait_for_selector("#saveResultCard:not(.hidden)")
         new = set(os.listdir(self.output_dir)) - before
         self.assertEqual(len(new), 1)
         text = fitz.open(os.path.join(self.output_dir, new.pop()))[0].get_text()

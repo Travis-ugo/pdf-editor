@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pdf-studio-pro-v19';
+const CACHE_NAME = 'pdf-studio-pro-v20';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/apple_style.css',

@@ -3823,3 +3823,268 @@ body.dark-mode .pdf-canvas-container { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3),
     .modal-tab { flex: 1; justify-content: center; }
     .library-toolbar-multi { flex-wrap: wrap; gap: 8px; }
 }
+
+/* ==========================================================================
+   Saved card (after a successful save)
+   ========================================================================== */
+.save-result {
+    position: absolute;
+    left: 50%;
+    bottom: 92px;
+    z-index: 65;
+    width: min(400px, calc(100% - 32px));
+    transform: translateX(-50%);
+    padding: 14px 14px 12px;
+    border-radius: 18px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-float);
+    font-family: var(--font-family);
+}
+
+.save-result.entering { animation: saveResultIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+.save-result.leaving { opacity: 0; transform: translateX(-50%) translateY(8px); transition: opacity 0.18s, transform 0.18s; }
+
+@keyframes saveResultIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.save-result-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.save-result-icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--apple-emerald);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(34, 196, 94, 0.32);
+}
+
+.save-result.entering .save-result-icon svg path {
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: saveResultTick 0.4s 0.12s ease-out forwards;
+}
+
+@keyframes saveResultTick { to { stroke-dashoffset: 0; } }
+
+.save-result-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.save-result-title { font-size: 14px; font-weight: 600; line-height: 1.2; }
+
+.save-result-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.save-result-meta svg { flex-shrink: 0; }
+.save-result-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-result-size { flex-shrink: 0; color: var(--text-tertiary); }
+.save-result-size::before { content: "·"; margin-right: 5px; }
+
+.save-result-close {
+    flex-shrink: 0;
+    align-self: flex-start;
+    width: 28px;
+    height: 28px;
+    margin: -4px -4px 0 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-tertiary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.save-result-close:hover { background: var(--bg-glass-hover); color: var(--text-primary); }
+
+.save-result-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-left: 48px;
+}
+
+.save-result-btn {
+    flex: 1;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: var(--btn-radius);
+    border: 1px solid var(--border-accent);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.save-result-btn:hover { background: var(--bg-glass-hover); }
+.save-result-btn.primary { border: none; background: var(--apple-blue); color: #fff; }
+.save-result-btn.primary:hover { background: var(--apple-blue-hover); }
+
+/* ==========================================================================
+   Eraser
+   ========================================================================== */
+.stage-viewport.eraser-active #pdfCanvasContainer,
+.stage-viewport.eraser-active .signature-overlay {
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="8" fill="white" fill-opacity="0.35" stroke="black" stroke-width="1.4"/><circle cx="11" cy="11" r="8" fill="none" stroke="white" stroke-width="0.6"/></svg>') 11 11, crosshair !important;
+}
+
+.stage-viewport.color-picking #pdfCanvasContainer,
+.stage-viewport.color-picking .signature-overlay {
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="white" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3z"/></svg>') 2 21, crosshair !important;
+}
+
+.eraser-editor { display: flex; flex-direction: column; gap: 10px; }
+
+.eraser-color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.eraser-swatch {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid var(--border-accent);
+    box-shadow: inset 0 0 0 2px var(--bg-secondary);
+    cursor: pointer;
+}
+
+/* Auto mode: no single color, so show a "matches the page" checker. */
+.eraser-swatch.auto {
+    background: conic-gradient(#fff 0 25%, #e8e2d4 0 50%, #fff 0 75%, #e8e2d4 0) 0 0 / 12px 12px !important;
+}
+
+.eraser-color-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.eraser-hex { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.eraser-pick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.eraser-pick-btn.active {
+    background: var(--apple-blue);
+    border-color: var(--apple-blue);
+    color: #fff;
+}
+
+.eraser-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.eraser-preset {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-accent);
+    cursor: pointer;
+}
+
+.eraser-preset.active { box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 4px var(--apple-blue); }
+
+.eraser-auto {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.eraser-auto input { margin: 2px 0 0; accent-color: var(--apple-blue); }
+.eraser-auto span { display: flex; flex-direction: column; gap: 1px; }
+.eraser-auto small { font-size: 11px; color: var(--text-secondary); }
+.eraser-note { margin: 0; font-size: 10.5px; color: var(--text-tertiary); }
+
+/* Current eraser color in the tool banner */
+.banner-swatch {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85), 0 0 0 2.5px rgba(0, 0, 0, 0.15);
+}
+
+/* Magnifier while picking the eraser color */
+.color-pick-loupe {
+    position: fixed;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 5px 5px;
+    border-radius: 99px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-float);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+.color-pick-loupe .loupe-swatch {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+@media (max-width: 760px) {
+    /* Above the pinned Save bar, wherever the column is scrolled. */
+    .save-result {
+        position: fixed;
+        bottom: calc(76px + env(safe-area-inset-bottom));
+        width: calc(100% - 24px);
+    }
+    .save-result-actions { padding-left: 0; }
+    .save-result-btn { height: 40px; }
+    /* One finger already pans the page on touch screens; the Hand tool makes room for the Eraser. */
+    .bottom-toolbar #togglePanToolBtn { display: none; }
+}
+
+/* Eraser panel: "Pick from page" gets its own full-width row in the narrow side panel. */
+.eraser-color-row { flex-wrap: wrap; }
+.eraser-pick-btn { flex: 1 0 100%; justify-content: center; min-height: 32px; }
+#inkBannerText { min-width: 0; }
+
+@media (max-width: 760px) {
+    /* Banner text can wrap on a phone: a rounded box, not a pill (which turns into a circle). */
+    #inkBanner { border-radius: 14px; padding: 8px 10px 8px 14px; width: max-content; }
+    #inkBannerText { flex: 1; }
+}

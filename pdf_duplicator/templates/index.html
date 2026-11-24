@@ -201,8 +201,17 @@
 
             <!-- Pen / check mark tool hint -->
             <div id="inkBanner" class="stamp-banner hidden">
+                <span id="inkBannerSwatch" class="banner-swatch hidden" aria-hidden="true"></span>
                 <span id="inkBannerText"></span>
+                <!-- Eraser only: pick the eraser color from the page (handy on phones, where the panel is far below) -->
+                <button id="inkBannerPickBtn" class="btn-text hidden" title="Pick the eraser color from the page (I)">Pick color</button>
                 <button id="stopInkBtn" class="btn-text">Done</button>
+            </div>
+
+            <!-- Magnifier showing the color under the pointer while picking the eraser color -->
+            <div id="colorPickLoupe" class="color-pick-loupe hidden" aria-hidden="true">
+                <span class="loupe-swatch"></span>
+                <span class="loupe-hex"></span>
             </div>
 
             <!-- Floating tool bar -->
@@ -222,6 +231,9 @@
                     </button>
                     <button id="toolMarkBtn" class="tool-btn sign-only" title="Check mark: click boxes to tick them (K, or X for a cross)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="m7.5 12.5 3 3 6-7"/></svg>
+                    </button>
+                    <button id="toolEraserBtn" class="tool-btn sign-only" title="Eraser: paint over the page in its own color (E)">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
                     </button>
                     <button id="toolStampBtn" class="tool-btn sign-only" title="Stamp signature (S)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c2.5-4 4.5-9 7-9 2 0-.5 8 2 8s2.5-4 4.5-4 1.5 3 4.5 3"/><path d="M3 21h18"/></svg>
@@ -257,6 +269,40 @@
             </div>
 
             <div id="statusAlert" class="status-alert hidden" role="status"></div>
+
+            <!-- Shown after a successful save -->
+            <div id="saveResultCard" class="save-result hidden" role="status" aria-live="polite">
+                <div class="save-result-head">
+                    <span class="save-result-icon" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+                    </span>
+                    <div class="save-result-text">
+                        <span id="saveResultTitle" class="save-result-title">PDF saved</span>
+                        <span class="save-result-meta">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                            <span id="saveResultName" class="save-result-name"></span>
+                            <span id="saveResultSize" class="save-result-size"></span>
+                        </span>
+                    </div>
+                    <button id="saveResultClose" type="button" class="save-result-close" aria-label="Dismiss" title="Dismiss">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                    </button>
+                </div>
+                <div class="save-result-actions">
+                    <a id="saveResultOpen" class="save-result-btn" href="#" target="_blank" rel="noopener">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                        Open
+                    </a>
+                    <a id="saveResultDownload" class="save-result-btn" href="#" download>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                        Download again
+                    </a>
+                    <button id="saveResultShare" type="button" class="save-result-btn primary hidden">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0-4 4m4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+                        Share
+                    </button>
+                </div>
+            </div>
         </section>
 
         <!-- Right panel: actions, zoom, properties, export -->
@@ -390,6 +436,39 @@
                             <span id="inkWidthValue" class="badge-rot">1.5 pt</span>
                         </div>
                         <input type="range" id="inkWidthSlider" min="0.5" max="8" value="1.5" step="0.25" class="apple-slider width-full">
+                    </div>
+                </section>
+
+                <!-- Eraser: wide ink strokes in a color picked from the page, painting over what's there -->
+                <section id="eraserControlsCard" class="panel-section sign-only">
+                    <div class="section-title">Eraser</div>
+                    <p id="eraserHint" class="tray-subtext">Pick the Eraser <kbd>E</kbd> to paint over anything on the page in the page's own color.</p>
+
+                    <div id="eraserEditor" class="eraser-editor hidden">
+                        <div class="eraser-color-row">
+                            <button type="button" id="eraserColorSwatch" class="eraser-swatch" title="Eraser color: click for more colors" aria-haspopup="dialog"></button>
+                            <div class="eraser-color-text">
+                                <span class="prop-label">Color</span>
+                                <span id="eraserColorHex" class="eraser-hex">#FFFFFF</span>
+                            </div>
+                            <button type="button" id="eraserPickBtn" class="chip-btn eraser-pick-btn" title="Pick a color from the page (I, or Alt-click while erasing)">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3z"/></svg>
+                                Pick from page
+                            </button>
+                        </div>
+                        <div class="eraser-presets" role="group" aria-label="Recent eraser colors">
+                            <!-- Filled by JS: white + recently picked colors -->
+                        </div>
+                        <label class="eraser-auto">
+                            <input type="checkbox" id="eraserAutoToggle">
+                            <span>Match the page automatically<small>Each stroke takes the color where it starts</small></span>
+                        </label>
+                        <div class="prop-row margin-top-sm">
+                            <span class="prop-label">Size</span>
+                            <span id="eraserWidthValue" class="badge-rot">12 pt</span>
+                        </div>
+                        <input type="range" id="eraserWidthSlider" min="2" max="60" value="12" step="1" class="apple-slider width-full">
+                        <p class="tray-subtext eraser-note">Covers what's underneath; text under it can still be found by copying or searching the PDF.</p>
                     </div>
                 </section>
 
