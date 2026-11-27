@@ -4158,3 +4158,184 @@ body.dark-mode .pdf-canvas-container { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3),
     .bottom-toolbar .tool-btn { width: 33px; height: 34px; }
     .bottom-toolbar .toolbar-group-muted .tool-btn { width: 30px; height: 30px; }
 }
+
+/* --- Opening a document: loading card over the canvas --- */
+.stage-loading-notice {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.stage-loading-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: min(320px, 100%);
+    padding: 28px 24px 24px;
+    border-radius: 20px;
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-glass);
+    text-align: center;
+}
+
+.stage-loading-card h3 {
+    margin: 4px 0 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stage-loading-card p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.loading-spinner {
+    width: 28px;
+    height: 28px;
+    border: 2.5px solid var(--accent-soft);
+    border-top-color: var(--apple-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.loading-progress {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: var(--bg-glass);
+    overflow: hidden;
+}
+
+.loading-progress-bar {
+    height: 100%;
+    width: 0;
+    border-radius: 2px;
+    background: var(--apple-blue);
+    transition: width 0.2s ease;
+}
+
+.loading-progress.indeterminate .loading-progress-bar {
+    width: 35%;
+    transition: none;
+    animation: progress-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-sweep {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(290%); }
+}
+
+/* The empty-canvas card would show through behind the loading card */
+.stage-viewport.is-opening .empty-stage-notice { visibility: hidden; }
+
+/* Sidebar open box while a file is on its way */
+.upload-dropzone.is-loading {
+    pointer-events: none;
+    border-style: solid;
+    border-color: var(--apple-blue);
+    background: var(--accent-soft);
+}
+
+.upload-dropzone.is-loading .dropzone-content svg { display: none; }
+
+.upload-dropzone.is-loading .dropzone-content::before {
+    content: "";
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--accent-soft);
+    border-top-color: var(--apple-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.upload-dropzone.is-loading .drop-subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .loading-spinner,
+    .upload-dropzone.is-loading .dropzone-content::before { animation-duration: 2.4s; }
+    .loading-progress.indeterminate .loading-progress-bar { animation: none; width: 100%; opacity: 0.5; }
+}
+
+/* --- Hover tooltips (static/js/tooltips.js) --- */
+.ui-tooltip {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10000;
+    max-width: 260px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: #1d1d1f;
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+}
+
+.ui-tooltip.visible {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.12s ease;
+}
+
+body.dark-mode .ui-tooltip {
+    background: #f5f5f7;
+    color: #1d1d1f;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.ui-tooltip-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.ui-tooltip-title kbd {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.16);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0.9;
+}
+
+body.dark-mode .ui-tooltip-title kbd { background: rgba(0, 0, 0, 0.08); }
+
+.ui-tooltip-desc {
+    display: block;
+    margin-top: 2px;
+    opacity: 0.78;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ui-tooltip, .ui-tooltip.visible { transition: none; }
+}

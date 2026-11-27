@@ -1,9 +1,10 @@
-const CACHE_NAME = 'pdf-studio-pro-v21';
+const CACHE_NAME = 'pdf-studio-pro-v22';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/css/apple_style.css',
   '/static/js/app.js',
   '/static/js/store.js',
+  '/static/js/tooltips.js',
   '/static/fonts/Poppins-Regular.ttf',
   '/static/fonts/Poppins-Medium.ttf',
   '/static/fonts/Poppins-SemiBold.ttf',

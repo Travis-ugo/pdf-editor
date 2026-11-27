@@ -65,24 +65,24 @@
                 </svg>
             </div>
             <div class="rail-divider"></div>
-            <button class="segmented-item rail-btn active" data-mode="sign" title="Sign & Text">
+            <button class="segmented-item rail-btn active" data-mode="sign" title="Sign & Text: add signatures, text, check marks and drawings">
                 <span class="rail-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/></svg></span>
                 <span class="rail-label">Sign</span>
             </button>
-            <button class="segmented-item rail-btn" data-mode="merge" title="Merge PDFs">
+            <button class="segmented-item rail-btn" data-mode="merge" title="Merge: combine several documents into one PDF">
                 <span class="rail-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v5a4 4 0 0 0 4 4 4 4 0 0 1 4 4v5"/><path d="M16 3v5a4 4 0 0 1-2 3.5"/><path d="m5 18 3 3 3-3"/></svg></span>
                 <span class="rail-label">Merge</span>
             </button>
-            <button class="segmented-item rail-btn" data-mode="duplicate" title="Duplicate Pages">
+            <button class="segmented-item rail-btn" data-mode="duplicate" title="Duplicate: make copies of pages inside the PDF">
                 <span class="rail-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1"/></svg></span>
                 <span class="rail-label">Duplicate</span>
             </button>
-            <button class="segmented-item rail-btn" data-mode="clone" title="Clone & Unlock">
+            <button class="segmented-item rail-btn" data-mode="clone" title="Clone & Unlock: save an exact copy, or an unlocked copy of a password-protected PDF">
                 <span class="rail-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg></span>
                 <span class="rail-label">Clone</span>
             </button>
             <div class="rail-spacer"></div>
-            <button id="pwaInstallBtn" class="rail-btn icon-only hidden" title="Install App">
+            <button id="pwaInstallBtn" class="rail-btn icon-only hidden" title="Install the app on this device">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
             </button>
             <button id="themeToggleBtn" class="rail-btn icon-only" title="Toggle light / dark theme">
@@ -188,6 +188,16 @@
                     <button id="emptyOpenBtn" class="apple-btn primary small">Open document</button>
                 </div>
 
+                <!-- Shown while a picked file uploads and is turned into pages -->
+                <div id="stageLoadingNotice" class="stage-loading-notice hidden" role="status" aria-live="polite">
+                    <div class="stage-loading-card">
+                        <div class="loading-spinner" aria-hidden="true"></div>
+                        <h3>Opening <span id="stageLoadingName"></span></h3>
+                        <p id="stageLoadingDetail">Uploading…</p>
+                        <div class="loading-progress"><div id="stageLoadingBar" class="loading-progress-bar"></div></div>
+                    </div>
+                </div>
+
                 <div id="pdfCanvasContainer" class="pdf-canvas-container hidden">
                     <img id="pdfPageImg" src="" alt="PDF Page Preview">
                 </div>
@@ -217,13 +227,13 @@
             <!-- Floating tool bar -->
             <div class="bottom-toolbar" role="toolbar" aria-label="Tools">
                 <div class="toolbar-group">
-                    <button id="toolMoveBtn" class="tool-btn active" title="Move (V)">
+                    <button id="toolMoveBtn" class="tool-btn active" title="Move: select, drag and resize items on the page (V)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4.5 3.5 20 10l-7 2.5L10.5 20z"/></svg>
                     </button>
-                    <button id="togglePanToolBtn" class="tool-btn" title="Hand tool (H, or hold Space)">
+                    <button id="togglePanToolBtn" class="tool-btn" title="Hand: drag to pan around the page (H, or hold Space)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/></svg>
                     </button>
-                    <button id="addTextBtn" class="tool-btn sign-only" title="Text (T)">
+                    <button id="addTextBtn" class="tool-btn sign-only" title="Text: click the page to type text (T)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 5h14M12 5v15M9 20h6"/></svg>
                     </button>
                     <button id="toolPenBtn" class="tool-btn sign-only" title="Pen: draw or write on the page (P)">
@@ -238,7 +248,7 @@
                     <button id="toolRedactBtn" class="tool-btn sign-only" title="Redact: drag over content to remove it from the file for good (R)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="8" rx="1.5" fill="currentColor" fill-opacity="0.9"/><path d="M4 4h6M14 4h6M4 20h9M17 20h3"/></svg>
                     </button>
-                    <button id="toolStampBtn" class="tool-btn sign-only" title="Stamp signature (S)">
+                    <button id="toolStampBtn" class="tool-btn sign-only" title="Stamp: click the page to place your signature (S)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c2.5-4 4.5-9 7-9 2 0-.5 8 2 8s2.5-4 4.5-4 1.5 3 4.5 3"/><path d="M3 21h18"/></svg>
                     </button>
                     <button id="toolNewSigBtn" class="toolbar-pill sign-only" title="Draw or upload a new signature">
@@ -258,7 +268,7 @@
                     <button id="toolPasteBtn" class="tool-btn sign-only hidden" title="Paste (⌘V)" aria-label="Paste">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
                     </button>
-                    <button id="toolPreviewBtn" class="tool-btn" title="Preview document">
+                    <button id="toolPreviewBtn" class="tool-btn" title="Preview the finished document">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
                 </div>
@@ -311,7 +321,7 @@
         <!-- Right panel: actions, zoom, properties, export -->
         <aside class="properties-panel">
             <div class="panel-header props-header">
-                <button id="openFullPreviewBtn" class="icon-btn large" title="Preview document">
+                <button id="openFullPreviewBtn" class="icon-btn large" title="Preview the finished document">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg>
                 </button>
                 <button id="processActionBtn" class="apple-btn primary save-btn" disabled>
@@ -701,6 +711,7 @@
     <script src="{{ url_for('static', filename='js/store.js') }}"></script>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tooltips.js') }}"></script>
     
     <!-- PWA Service Worker Registration -->
     <script>

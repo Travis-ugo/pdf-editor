@@ -323,21 +323,87 @@ document.addEventListener("DOMContentLoaded", () => {
     // the correct password silently did nothing.
     let pendingUploadFile = null;
 
+    // --- "Opening file…" indicator ---
+    // On the hosted app the upload plus page rendering can take several seconds, so show the
+    // customer that something is happening: a card over the canvas with upload progress, and
+    // the sidebar's open box switches to a busy state.
+    const stageLoadingNotice = document.getElementById("stageLoadingNotice");
+    const stageLoadingName = document.getElementById("stageLoadingName");
+    const stageLoadingDetail = document.getElementById("stageLoadingDetail");
+    const stageLoadingBar = document.getElementById("stageLoadingBar");
+    const dropTitle = dropzone.querySelector(".drop-title");
+    const dropSubtitle = dropzone.querySelector(".drop-subtitle");
+    const dropTitleIdle = dropTitle ? dropTitle.textContent : "";
+    const dropSubtitleIdle = dropSubtitle ? dropSubtitle.textContent : "";
+
+    function setOpenProgress(detail, fraction) {
+        stageLoadingDetail.textContent = detail;
+        // null = unknown length: the bar sweeps instead of filling
+        stageLoadingBar.parentElement.classList.toggle("indeterminate", fraction == null);
+        stageLoadingBar.style.width = fraction == null ? "" : `${Math.round(fraction * 100)}%`;
+    }
+
+    function showOpenLoading(file) {
+        stageLoadingName.textContent = file.name;
+        setOpenProgress("Uploading…", 0);
+        stageLoadingNotice.classList.remove("hidden");
+        stageLoadingNotice.parentElement.classList.add("is-opening");
+        dropzone.classList.add("is-loading");
+        if (dropTitle) dropTitle.textContent = "Opening…";
+        if (dropSubtitle) dropSubtitle.textContent = file.name;
+    }
+
+    function hideOpenLoading() {
+        stageLoadingNotice.classList.add("hidden");
+        stageLoadingNotice.parentElement.classList.remove("is-opening");
+        dropzone.classList.remove("is-loading");
+        if (dropTitle) dropTitle.textContent = dropTitleIdle;
+        if (dropSubtitle) dropSubtitle.textContent = dropSubtitleIdle;
+    }
+
+    // XMLHttpRequest rather than fetch() because only XHR reports upload progress.
+    let activeOpenRequest = null;
+    function postWithUploadProgress(url, formData, onUploadProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", url);
+            xhr.responseType = "json";
+            xhr.upload.onprogress = (e) => onUploadProgress(e.lengthComputable ? e.loaded / e.total : null);
+            xhr.upload.onload = () => onUploadProgress(1, true);
+            xhr.onload = () => {
+                if (xhr.response && typeof xhr.response === "object") resolve(xhr.response);
+                else reject(new Error(`server responded ${xhr.status}`));
+            };
+            xhr.onerror = () => reject(new Error("network error — check your connection"));
+            xhr.onabort = () => reject(Object.assign(new Error("aborted"), { aborted: true }));
+            xhr.send(formData);
+            activeOpenRequest = xhr;
+        });
+    }
+
     function handleFileUpload(file) {
         const ext = fileExtension(file.name);
-        showStatus(ext && ext !== ".pdf" ? `Opening ${file.name}…` : null, "info");
+        const isPdf = !ext || ext === ".pdf";
+        showStatus(null);
+        // Picking another file while one is still opening replaces it.
+        if (activeOpenRequest) activeOpenRequest.abort();
+        showOpenLoading(file);
         const formData = new FormData();
         formData.append("file", file);
         if (pdfPasswordInput.value) {
             formData.append("password", pdfPasswordInput.value);
         }
 
-        fetch("/api/inspect-pdf", {
-            method: "POST",
-            body: formData
+        postWithUploadProgress("/api/inspect-pdf", formData, (fraction, done) => {
+            if (done) {
+                setOpenProgress(isPdf ? "Preparing pages…" : "Converting to PDF…", null);
+            } else {
+                setOpenProgress(fraction == null ? "Uploading…" : `Uploading… ${Math.round(fraction * 100)}%`, fraction);
+            }
         })
-        .then(res => res.json())
         .then(data => {
+            activeOpenRequest = null;
+            hideOpenLoading();
             if (data.error) {
                 if (data.is_encrypted) {
                     passwordSection.classList.remove("hidden");
@@ -378,7 +444,10 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         })
         .catch(err => {
-            showStatus("Failed to inspect PDF: " + err.message, "error");
+            if (err.aborted) return;  // superseded by a newer pick, which owns the indicator
+            activeOpenRequest = null;
+            hideOpenLoading();
+            showStatus(`Couldn't open ${file.name}: ${err.message}`, "error");
         });
     }
 
@@ -432,6 +501,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function handleMergeFilesUpload(filesList) {
+        // Merge adds arrive in the queue one by one; say they're on the way.
+        let remaining = filesList.filter(isOpenableDocument).length;
+        if (remaining) {
+            mergeDropzone.classList.add("is-loading");
+            showStatus(`Adding ${remaining} file${remaining > 1 ? "s" : ""}…`, "info");
+        }
+        const oneDone = () => {
+            if (--remaining > 0) return;
+            mergeDropzone.classList.remove("is-loading");
+            if (statusAlert.classList.contains("info")) showStatus(null);
+        };
         filesList.forEach(file => {
             if (!isOpenableDocument(file)) {
                 showStatus(`Can't open ${file.name}: unsupported file type.`, "error");
@@ -462,7 +542,8 @@ document.addEventListener("DOMContentLoaded", () => {
             })
             .catch(err => {
                 showStatus(err.message, "error");
-            });
+            })
+            .finally(oneDone);
         });
     }
 
@@ -622,6 +703,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     store.subscribe("document:reset", () => {
         pendingUploadFile = null;
+        if (activeOpenRequest) activeOpenRequest.abort();
+        activeOpenRequest = null;
+        hideOpenLoading();
         pdfFileInput.value = "";
         pdfPasswordInput.value = "";
         docInfoCard.classList.add("hidden");
